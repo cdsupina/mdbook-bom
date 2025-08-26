@@ -1,10 +1,8 @@
 use clap::{Arg, ArgMatches, Command};
-use csv;
 use mdbook::book::{Book, BookItem};
 use mdbook::errors::Error;
 use mdbook::preprocess::{CmdPreprocessor, Preprocessor, PreprocessorContext};
 use serde::{Deserialize, Serialize};
-use serde_json;
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
@@ -24,11 +22,9 @@ fn main() {
 
     if let Some(sub_args) = matches.subcommand_matches("supports") {
         handle_supports(sub_args);
-    } else {
-        if let Err(e) = handle_preprocessing() {
-            eprintln!("{}", e);
-            std::process::exit(1);
-        }
+    } else if let Err(e) = handle_preprocessing() {
+        eprintln!("{}", e);
+        std::process::exit(1);
     }
 }
 
@@ -122,7 +118,7 @@ impl Inventory {
         for result in reader.deserialize() {
             let tool: InventoryTool =
                 result.map_err(|e| Error::msg(format!("Failed to parse tool: {}", e)))?;
-            tools.insert(tool.part_number.clone(), tool);
+            tools.insert(tool.name.clone(), tool);
         }
 
         Ok(tools)
@@ -160,21 +156,10 @@ impl Preprocessor for BomPreprocessor {
 
                             // Accumulate all items from all sections for BOM
                             for section_metadata in sections.values() {
-                                let parts = section_metadata
-                                    .parts
-                                    .as_ref()
-                                    .map(|v| v.as_slice())
-                                    .unwrap_or_default();
-                                let consumables = section_metadata
-                                    .consumables
-                                    .as_ref()
-                                    .map(|v| v.as_slice())
-                                    .unwrap_or_default();
-                                let tools = section_metadata
-                                    .tools
-                                    .as_ref()
-                                    .map(|v| v.as_slice())
-                                    .unwrap_or_default();
+                                let parts = section_metadata.parts.as_deref().unwrap_or_default();
+                                let consumables =
+                                    section_metadata.consumables.as_deref().unwrap_or_default();
+                                let tools = section_metadata.tools.as_deref().unwrap_or_default();
 
                                 accumulate_parts(parts, &inventory, &mut all_parts);
                                 accumulate_consumables(
@@ -188,21 +173,9 @@ impl Preprocessor for BomPreprocessor {
                             // Handle legacy flat structure (backwards compatibility)
                             ch.content = content_without_fm;
 
-                            let parts = metadata
-                                .parts
-                                .as_ref()
-                                .map(|v| v.as_slice())
-                                .unwrap_or_default();
-                            let consumables = metadata
-                                .consumables
-                                .as_ref()
-                                .map(|v| v.as_slice())
-                                .unwrap_or_default();
-                            let tools = metadata
-                                .tools
-                                .as_ref()
-                                .map(|v| v.as_slice())
-                                .unwrap_or_default();
+                            let parts = metadata.parts.as_deref().unwrap_or_default();
+                            let consumables = metadata.consumables.as_deref().unwrap_or_default();
+                            let tools = metadata.tools.as_deref().unwrap_or_default();
 
                             // Generate tables for this chapter (legacy behavior)
                             let parts_table = generate_parts_table(parts, &inventory);
@@ -279,7 +252,7 @@ struct ConsumableReference {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct ToolReference {
-    part_number: String,
+    name: String,
     setting: Option<String>,
 }
 
@@ -302,9 +275,8 @@ struct InventoryConsumable {
 
 #[derive(Debug, Deserialize, Clone)]
 struct InventoryTool {
-    part_number: String,
-    description: String,
-    supplier: String,
+    name: String,
+    brand: String,
 }
 
 #[derive(Debug, Clone)]
@@ -326,25 +298,24 @@ struct BomConsumableItem {
 
 #[derive(Debug, Clone)]
 struct BomToolItem {
-    part_number: String,
-    description: String,
-    supplier: String,
+    name: String,
+    brand: String,
     settings: Vec<String>, // Multiple settings from different chapters
 }
 
 fn extract_front_matter(content: &str) -> Option<String> {
-    if content.starts_with("---\n") {
-        if let Some(end_pos) = content[4..].find("\n---\n") {
-            return Some(content[4..end_pos + 4].to_string());
+    if let Some(stripped) = content.strip_prefix("---\n") {
+        if let Some(end_pos) = stripped.find("\n---\n") {
+            return Some(stripped[..end_pos].to_string());
         }
     }
     None
 }
 
 fn remove_front_matter(content: &str) -> String {
-    if content.starts_with("---\n") {
-        if let Some(end_pos) = content[4..].find("\n---\n") {
-            return content[end_pos + 8..].to_string();
+    if let Some(stripped) = content.strip_prefix("---\n") {
+        if let Some(end_pos) = stripped.find("\n---\n") {
+            return stripped[end_pos + 4..].to_string();
         }
     }
     content.to_string()
@@ -393,21 +364,9 @@ fn insert_section_tables(
         for (step_key, header_line_idx) in &step_headers {
             if line_idx == *header_line_idx {
                 if let Some(section_metadata) = sections.get(step_key) {
-                    let parts = section_metadata
-                        .parts
-                        .as_ref()
-                        .map(|v| v.as_slice())
-                        .unwrap_or_default();
-                    let consumables = section_metadata
-                        .consumables
-                        .as_ref()
-                        .map(|v| v.as_slice())
-                        .unwrap_or_default();
-                    let tools = section_metadata
-                        .tools
-                        .as_ref()
-                        .map(|v| v.as_slice())
-                        .unwrap_or_default();
+                    let parts = section_metadata.parts.as_deref().unwrap_or_default();
+                    let consumables = section_metadata.consumables.as_deref().unwrap_or_default();
+                    let tools = section_metadata.tools.as_deref().unwrap_or_default();
 
                     let parts_table = generate_parts_table(parts, inventory);
                     let consumables_table = generate_consumables_table(consumables, inventory);
@@ -499,21 +458,20 @@ fn generate_tools_table(tools: &[ToolReference], inventory: &Inventory) -> Strin
         return String::new();
     }
 
-    let mut table = String::from("<details>\n<summary><strong>🔧 Tools</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Part Number</th><th>Description</th><th>Setting</th><th>Supplier</th></tr>\n</thead>\n<tbody>\n");
+    let mut table = String::from("<details>\n<summary><strong>🔧 Tools</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Setting</th><th>Brand</th></tr>\n</thead>\n<tbody>\n");
 
     for tool_ref in tools {
-        if let Some(tool) = inventory.tools.get(&tool_ref.part_number) {
+        if let Some(tool) = inventory.tools.get(&tool_ref.name) {
             table.push_str(&format!(
-                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
-                tool.part_number,
-                tool.description,
+                "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+                tool.name,
                 tool_ref.setting.as_deref().unwrap_or("-"),
-                tool.supplier
+                tool.brand
             ));
         } else {
             table.push_str(&format!(
-                "<tr><td>{}</td><td>Tool not found in inventory</td><td>{}</td><td>-</td></tr>\n",
-                tool_ref.part_number,
+                "<tr><td>{}</td><td>{}</td><td>Tool not found in inventory</td></tr>\n",
+                tool_ref.name,
                 tool_ref.setting.as_deref().unwrap_or("-")
             ));
         }
@@ -574,8 +532,8 @@ fn accumulate_tools(
     all_tools: &mut HashMap<String, BomToolItem>,
 ) {
     for tool_ref in tools {
-        if let Some(inventory_tool) = inventory.tools.get(&tool_ref.part_number) {
-            let key = tool_ref.part_number.clone();
+        if let Some(inventory_tool) = inventory.tools.get(&tool_ref.name) {
+            let key = tool_ref.name.clone();
 
             all_tools
                 .entry(key)
@@ -592,9 +550,8 @@ fn accumulate_tools(
                         settings.push(setting.clone());
                     }
                     BomToolItem {
-                        part_number: inventory_tool.part_number.clone(),
-                        description: inventory_tool.description.clone(),
-                        supplier: inventory_tool.supplier.clone(),
+                        name: inventory_tool.name.clone(),
+                        brand: inventory_tool.brand.clone(),
                         settings,
                     }
                 });
@@ -638,22 +595,19 @@ fn generate_bom_file(parts: &HashMap<String, BomItem>) -> Result<(), Error> {
 
 fn generate_tools_file(
     tools: &HashMap<String, BomToolItem>,
-    inventory: &Inventory,
+    _inventory: &Inventory,
 ) -> Result<(), Error> {
     let mut csv_content = String::new();
 
     // CSV Header
-    csv_content.push_str("Part Number,Description,Supplier\n");
+    csv_content.push_str("Name,Brand\n");
 
     // Tools section - only include tools that were actually used
     let mut sorted_tools: Vec<_> = tools.values().collect();
-    sorted_tools.sort_by(|a, b| a.description.cmp(&b.description));
+    sorted_tools.sort_by(|a, b| a.name.cmp(&b.name));
 
     for tool in sorted_tools {
-        csv_content.push_str(&format!(
-            "\"{}\",\"{}\",\"{}\"\n",
-            tool.part_number, tool.description, tool.supplier
-        ));
+        csv_content.push_str(&format!("\"{}\",\"{}\"\n", tool.name, tool.brand));
     }
 
     // Write tools to CSV file
@@ -665,7 +619,7 @@ fn generate_tools_file(
 
 fn generate_consumables_file(
     consumables: &HashMap<String, BomConsumableItem>,
-    inventory: &Inventory,
+    _inventory: &Inventory,
 ) -> Result<(), Error> {
     let mut csv_content = String::new();
 
