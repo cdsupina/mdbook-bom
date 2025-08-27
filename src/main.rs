@@ -1,3 +1,4 @@
+use calamine::{open_workbook, Reader, RangeDeserializerBuilder, Xlsx};
 use clap::{Arg, ArgMatches, Command};
 use mdbook::book::{Book, BookItem};
 use mdbook::errors::Error;
@@ -49,25 +50,72 @@ fn handle_preprocessing() -> Result<(), Error> {
 }
 
 struct Inventory {
-    parts: HashMap<String, InventoryPart>,
+    fasteners: HashMap<String, InventoryFastener>,
+    electronics: HashMap<String, InventoryElectronic>,
+    custom_parts: HashMap<String, InventoryCustomPart>,
     consumables: HashMap<String, InventoryConsumable>,
     tools: HashMap<String, InventoryTool>,
 }
 
 impl Inventory {
-    fn load() -> Result<Self, Error> {
-        let parts = Self::load_parts()?;
+    fn load(excel_path: Option<&str>) -> Result<Self, Error> {
+        if let Some(path) = excel_path {
+            Self::load_from_excel(path)
+        } else {
+            Self::load_from_csv()
+        }
+    }
+
+    fn load_from_csv() -> Result<Self, Error> {
+        let fasteners = Self::load_parts_as_fasteners()?;
+        let electronics = HashMap::new(); // No electronics in legacy CSV
+        let custom_parts = HashMap::new(); // No custom_parts in legacy CSV
         let consumables = Self::load_consumables()?;
         let tools = Self::load_tools()?;
 
         Ok(Inventory {
-            parts,
+            fasteners,
+            electronics,
+            custom_parts,
             consumables,
             tools,
         })
     }
 
-    fn load_parts() -> Result<HashMap<String, InventoryPart>, Error> {
+    fn load_from_excel(excel_path: &str) -> Result<Self, Error> {
+        // Expand home directory if needed
+        let expanded_path = if excel_path.starts_with("~/") {
+            if let Some(home) = std::env::var_os("HOME") {
+                let home_path = std::path::Path::new(&home);
+                home_path.join(&excel_path[2..]).to_string_lossy().to_string()
+            } else {
+                return Err(Error::msg("Cannot expand ~ - HOME environment variable not set"));
+            }
+        } else {
+            excel_path.to_string()
+        };
+
+        // Check if file exists first
+        if !std::path::Path::new(&expanded_path).exists() {
+            return Err(Error::msg(format!("Excel file not found: {}", expanded_path)));
+        }
+
+        let fasteners = Self::load_fasteners_from_excel(&expanded_path)?;
+        let electronics = Self::load_electronics_from_excel(&expanded_path)?;
+        let custom_parts = Self::load_custom_parts_from_excel(&expanded_path)?;
+        let consumables = Self::load_consumables_from_excel(&expanded_path)?;
+        let tools = Self::load_tools_from_excel(&expanded_path)?;
+
+        Ok(Inventory {
+            fasteners,
+            electronics,
+            custom_parts,
+            consumables,
+            tools,
+        })
+    }
+
+    fn load_parts_as_fasteners() -> Result<HashMap<String, InventoryFastener>, Error> {
         let path = Path::new("inventory/parts.csv");
         if !path.exists() {
             return Err(Error::msg("inventory/parts.csv not found"));
@@ -76,14 +124,14 @@ impl Inventory {
         let mut reader = csv::Reader::from_path(path)
             .map_err(|e| Error::msg(format!("Failed to read parts.csv: {}", e)))?;
 
-        let mut parts = HashMap::new();
+        let mut fasteners = HashMap::new();
         for result in reader.deserialize() {
-            let part: InventoryPart =
-                result.map_err(|e| Error::msg(format!("Failed to parse part: {}", e)))?;
-            parts.insert(part.part_number.clone(), part);
+            let fastener: InventoryFastener =
+                result.map_err(|e| Error::msg(format!("Failed to parse fastener: {}", e)))?;
+            fasteners.insert(fastener.part_number.clone(), fastener);
         }
 
-        Ok(parts)
+        Ok(fasteners)
     }
 
     fn load_consumables() -> Result<HashMap<String, InventoryConsumable>, Error> {
@@ -123,20 +171,139 @@ impl Inventory {
 
         Ok(tools)
     }
+
+    fn load_fasteners_from_excel(excel_path: &str) -> Result<HashMap<String, InventoryFastener>, Error> {
+        let mut workbook: Xlsx<_> = open_workbook(excel_path)
+            .map_err(|e| Error::msg(format!("Failed to open Excel file: {}", e)))?;
+
+        let range = workbook.worksheet_range("hardware")
+            .map_err(|e| Error::msg(format!("Failed to read 'hardware' sheet: {}", e)))?;
+
+        let mut hardware = HashMap::new();
+        let mut iter = RangeDeserializerBuilder::new()
+            .from_range(&range)
+            .map_err(|e| Error::msg(format!("Failed to create deserializer for hardware: {}", e)))?;
+
+        for result in iter {
+            let hardware_item: InventoryFastener = result
+                .map_err(|e| Error::msg(format!("Failed to parse hardware row: {}", e)))?;
+            hardware.insert(hardware_item.part_number.clone(), hardware_item);
+        }
+
+        Ok(hardware)
+    }
+
+    fn load_electronics_from_excel(excel_path: &str) -> Result<HashMap<String, InventoryElectronic>, Error> {
+        let mut workbook: Xlsx<_> = open_workbook(excel_path)
+            .map_err(|e| Error::msg(format!("Failed to open Excel file: {}", e)))?;
+
+        let range = workbook.worksheet_range("electronics")
+            .map_err(|e| Error::msg(format!("Failed to read 'electronics' sheet: {}", e)))?;
+
+
+        let mut electronics = HashMap::new();
+        let mut iter = RangeDeserializerBuilder::new()
+            .from_range(&range)
+            .map_err(|e| Error::msg(format!("Failed to create deserializer for electronics: {}", e)))?;
+
+        for result in iter {
+            let electronic: InventoryElectronic = result
+                .map_err(|e| Error::msg(format!("Failed to parse electronic row: {}", e)))?;
+            electronics.insert(electronic.part_number.clone(), electronic);
+        }
+
+        Ok(electronics)
+    }
+
+    fn load_custom_parts_from_excel(excel_path: &str) -> Result<HashMap<String, InventoryCustomPart>, Error> {
+        let mut workbook: Xlsx<_> = open_workbook(excel_path)
+            .map_err(|e| Error::msg(format!("Failed to open Excel file: {}", e)))?;
+
+        let range = workbook.worksheet_range("custom_parts")
+            .map_err(|e| Error::msg(format!("Failed to read 'custom_parts' sheet: {}", e)))?;
+
+        let mut custom_parts = HashMap::new();
+        let mut iter = RangeDeserializerBuilder::new()
+            .from_range(&range)
+            .map_err(|e| Error::msg(format!("Failed to create deserializer for custom_parts: {}", e)))?;
+
+        for result in iter {
+            let custom_part: InventoryCustomPart = result
+                .map_err(|e| Error::msg(format!("Failed to parse custom_part row: {}", e)))?;
+            custom_parts.insert(custom_part.part_number.clone(), custom_part);
+        }
+
+        Ok(custom_parts)
+    }
+
+    fn load_consumables_from_excel(excel_path: &str) -> Result<HashMap<String, InventoryConsumable>, Error> {
+        let mut workbook: Xlsx<_> = open_workbook(excel_path)
+            .map_err(|e| Error::msg(format!("Failed to open Excel file: {}", e)))?;
+
+        let range = workbook.worksheet_range("consumables")
+            .map_err(|e| Error::msg(format!("Failed to read 'consumables' sheet: {}", e)))?;
+
+        let mut consumables = HashMap::new();
+        let mut iter = RangeDeserializerBuilder::new()
+            .from_range(&range)
+            .map_err(|e| Error::msg(format!("Failed to create deserializer for consumables: {}", e)))?;
+
+        for result in iter {
+            let consumable: InventoryConsumable = result
+                .map_err(|e| Error::msg(format!("Failed to parse consumable row: {}", e)))?;
+            consumables.insert(consumable.part_number.clone(), consumable);
+        }
+
+        Ok(consumables)
+    }
+
+    fn load_tools_from_excel(excel_path: &str) -> Result<HashMap<String, InventoryTool>, Error> {
+        let mut workbook: Xlsx<_> = open_workbook(excel_path)
+            .map_err(|e| Error::msg(format!("Failed to open Excel file: {}", e)))?;
+
+        let range = workbook.worksheet_range("tools")
+            .map_err(|e| Error::msg(format!("Failed to read 'tools' sheet: {}", e)))?;
+
+        let mut tools = HashMap::new();
+        let mut iter = RangeDeserializerBuilder::new()
+            .from_range(&range)
+            .map_err(|e| Error::msg(format!("Failed to create deserializer for tools: {}", e)))?;
+
+        for result in iter {
+            let tool: InventoryTool = result
+                .map_err(|e| Error::msg(format!("Failed to parse tool row: {}", e)))?;
+            tools.insert(tool.name.clone(), tool);
+        }
+
+        Ok(tools)
+    }
 }
 
 pub struct BomPreprocessor;
 
 impl Preprocessor for BomPreprocessor {
     fn name(&self) -> &str {
-        "mdbook-bom"
+        "bom"
     }
 
-    fn run(&self, _ctx: &PreprocessorContext, mut book: Book) -> Result<Book, Error> {
-        // Load inventory data
-        let inventory = Inventory::load()?;
+    fn run(&self, ctx: &PreprocessorContext, mut book: Book) -> Result<Book, Error> {
+        // Check for Excel inventory file configuration
+        let excel_path = if let Some(bom_cfg) = ctx.config.get_preprocessor(self.name()) {
+            if let Some(inventory_file) = bom_cfg.get("inventory_file") {
+                inventory_file.as_str()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
-        let mut all_parts: HashMap<String, BomItem> = HashMap::new();
+        // Load inventory data
+        let inventory = Inventory::load(excel_path)?;
+
+        let mut all_fasteners: HashMap<String, BomFastenerItem> = HashMap::new();
+        let mut all_electronics: HashMap<String, BomElectronicItem> = HashMap::new();
+        let mut all_custom_parts: HashMap<String, BomCustomPartItem> = HashMap::new();
         let mut all_consumables: HashMap<String, BomConsumableItem> = HashMap::new();
         let mut all_tools: HashMap<String, BomToolItem> = HashMap::new();
 
@@ -156,17 +323,23 @@ impl Preprocessor for BomPreprocessor {
 
                             // Accumulate all items from all sections for BOM
                             for section_metadata in sections.values() {
-                                let parts = section_metadata.parts.as_deref().unwrap_or_default();
-                                let consumables =
-                                    section_metadata.consumables.as_deref().unwrap_or_default();
+                                // Check both hardware and fasteners for backward compatibility
+                                let hardware = section_metadata.hardware.as_deref().unwrap_or_default();
+                                let legacy_fasteners = section_metadata.fasteners.as_deref().unwrap_or_default();
+                                let electronics = section_metadata.electronics.as_deref().unwrap_or_default();
+                                let custom_parts = section_metadata.custom_parts.as_deref().unwrap_or_default();
+                                let consumables = section_metadata.consumables.as_deref().unwrap_or_default();
                                 let tools = section_metadata.tools.as_deref().unwrap_or_default();
+                                
+                                // Legacy support: if parts exist, treat as fasteners for backward compatibility
+                                let legacy_parts = section_metadata.parts.as_deref().unwrap_or_default();
 
-                                accumulate_parts(parts, &inventory, &mut all_parts);
-                                accumulate_consumables(
-                                    consumables,
-                                    &inventory,
-                                    &mut all_consumables,
-                                );
+                                accumulate_fasteners(hardware, &inventory, &mut all_fasteners);
+                                accumulate_fasteners(legacy_fasteners, &inventory, &mut all_fasteners);
+                                accumulate_fasteners(legacy_parts, &inventory, &mut all_fasteners); // Legacy support
+                                accumulate_electronics(electronics, &inventory, &mut all_electronics);
+                                accumulate_custom_parts(custom_parts, &inventory, &mut all_custom_parts);
+                                accumulate_consumables(consumables, &inventory, &mut all_consumables);
                                 accumulate_tools(tools, &inventory, &mut all_tools);
                             }
                         } else {
@@ -178,7 +351,7 @@ impl Preprocessor for BomPreprocessor {
                             let tools = metadata.tools.as_deref().unwrap_or_default();
 
                             // Generate tables for this chapter (legacy behavior)
-                            let parts_table = generate_parts_table(parts, &inventory);
+                            let parts_table = generate_fasteners_table(parts, &inventory);
                             let consumables_table =
                                 generate_consumables_table(consumables, &inventory);
                             let tools_table = generate_tools_table(tools, &inventory);
@@ -200,8 +373,8 @@ impl Preprocessor for BomPreprocessor {
                             new_content.push_str(&ch.content);
                             ch.content = new_content;
 
-                            // Accumulate for global BOM
-                            accumulate_parts(parts, &inventory, &mut all_parts);
+                            // Accumulate for global BOM (legacy support - treat parts as fasteners)
+                            accumulate_fasteners(parts, &inventory, &mut all_fasteners);
                             accumulate_consumables(consumables, &inventory, &mut all_consumables);
                             accumulate_tools(tools, &inventory, &mut all_tools);
                         }
@@ -214,7 +387,9 @@ impl Preprocessor for BomPreprocessor {
         create_output_directory()?;
 
         // Generate all output files
-        generate_bom_file(&all_parts)?;
+        generate_fasteners_file(&all_fasteners)?;
+        generate_electronics_file(&all_electronics)?;
+        generate_custom_parts_file(&all_custom_parts)?;
         generate_tools_file(&all_tools, &inventory)?;
         generate_consumables_file(&all_consumables, &inventory)?;
 
@@ -233,21 +408,26 @@ struct ChapterMetadata {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct SectionMetadata {
-    parts: Option<Vec<PartReference>>,
+    hardware: Option<Vec<PartReference>>,
+    electronics: Option<Vec<PartReference>>,
+    custom_parts: Option<Vec<PartReference>>,
     consumables: Option<Vec<ConsumableReference>>,
     tools: Option<Vec<ToolReference>>,
+    // Keep legacy fields for backward compatibility
+    fasteners: Option<Vec<PartReference>>,
+    parts: Option<Vec<PartReference>>,
 }
 
 // Simplified front matter structures
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct PartReference {
-    part_number: String,
+    name: String,
     quantity: u32,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct ConsumableReference {
-    part_number: String,
+    name: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -258,29 +438,73 @@ struct ToolReference {
 
 // Inventory structures
 #[derive(Debug, Deserialize, Clone)]
-struct InventoryPart {
+struct InventoryFastener {
+    #[serde(rename = "Name")]
     part_number: String,
-    description: String,
-    supplier: String,
-    unit_cost: f64,
+    #[serde(rename = "Description", default)]
+    description: Option<String>,
+    #[serde(rename = "Quantity", default)]
+    inventory_quantity: Option<u32>, // Quantity from Excel, optional
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct InventoryElectronic {
+    #[serde(rename = "Name")]
+    part_number: String,
+    #[serde(rename = "Description", default)]
+    description: Option<String>,
+    #[serde(rename = "Quantity", default)]
+    inventory_quantity: Option<u32>, // Quantity from Excel, optional
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct InventoryCustomPart {
+    #[serde(rename = "Name")]
+    part_number: String,
+    #[serde(rename = "Description", default)]
+    description: Option<String>,
+    #[serde(rename = "Quantity", default)]
+    inventory_quantity: Option<u32>, // Quantity from Excel, optional
 }
 
 #[derive(Debug, Deserialize, Clone)]
 struct InventoryConsumable {
+    #[serde(rename = "Name")]
     part_number: String,
-    description: String,
-    supplier: String,
-    unit_cost: f64,
+    #[serde(rename = "Description", default)]
+    description: Option<String>,
+    #[serde(rename = "Quantity", default)]
+    inventory_quantity: Option<u32>, // Quantity from Excel, optional
 }
 
 #[derive(Debug, Deserialize, Clone)]
 struct InventoryTool {
+    #[serde(rename = "Name")]
     name: String,
-    brand: String,
+    #[serde(rename = "Brand", default)]
+    brand: Option<String>,
 }
 
 #[derive(Debug, Clone)]
-struct BomItem {
+struct BomFastenerItem {
+    part_number: String,
+    description: String,
+    supplier: String,
+    total_quantity: u32,
+    unit_cost: Option<f64>,
+}
+
+#[derive(Debug, Clone)]
+struct BomElectronicItem {
+    part_number: String,
+    description: String,
+    supplier: String,
+    total_quantity: u32,
+    unit_cost: Option<f64>,
+}
+
+#[derive(Debug, Clone)]
+struct BomCustomPartItem {
     part_number: String,
     description: String,
     supplier: String,
@@ -323,7 +547,7 @@ fn remove_front_matter(content: &str) -> String {
 
 fn find_step_headers(content: &str) -> Vec<(String, usize)> {
     use regex::Regex;
-    let re = Regex::new(r"(?i)^##\s+Step\s+(\d+):?.*$").unwrap();
+    let re = Regex::new(r"(?i)^##+\s+Step\s+(\d+):?.*$").unwrap();
 
     content
         .lines()
@@ -364,17 +588,44 @@ fn insert_section_tables(
         for (step_key, header_line_idx) in &step_headers {
             if line_idx == *header_line_idx {
                 if let Some(section_metadata) = sections.get(step_key) {
-                    let parts = section_metadata.parts.as_deref().unwrap_or_default();
+                    // Check both hardware and fasteners for backward compatibility
+                    let hardware = section_metadata.hardware.as_deref().unwrap_or_default();
+                    let legacy_fasteners = section_metadata.fasteners.as_deref().unwrap_or_default();
+                    let electronics = section_metadata.electronics.as_deref().unwrap_or_default();
+                    let custom_parts = section_metadata.custom_parts.as_deref().unwrap_or_default();
                     let consumables = section_metadata.consumables.as_deref().unwrap_or_default();
                     let tools = section_metadata.tools.as_deref().unwrap_or_default();
+                    
+                    // Legacy support
+                    let legacy_parts = section_metadata.parts.as_deref().unwrap_or_default();
 
-                    let parts_table = generate_parts_table(parts, inventory);
+                    let hardware_table = generate_fasteners_table(hardware, inventory);
+                    let legacy_fasteners_table = generate_fasteners_table(legacy_fasteners, inventory);
+                    let legacy_parts_table = generate_fasteners_table(legacy_parts, inventory);
+                    let electronics_table = generate_electronics_table(electronics, inventory);
+                    let custom_parts_table = generate_custom_parts_table(custom_parts, inventory);
                     let consumables_table = generate_consumables_table(consumables, inventory);
                     let tools_table = generate_tools_table(tools, inventory);
 
-                    if !parts_table.is_empty() {
+                    if !hardware_table.is_empty() {
                         result.push("".to_string()); // Empty line
-                        result.extend(parts_table.lines().map(|s| s.to_string()));
+                        result.extend(hardware_table.lines().map(|s| s.to_string()));
+                    }
+                    if !legacy_fasteners_table.is_empty() {
+                        result.push("".to_string()); // Empty line
+                        result.extend(legacy_fasteners_table.lines().map(|s| s.to_string()));
+                    }
+                    if !legacy_parts_table.is_empty() {
+                        result.push("".to_string()); // Empty line
+                        result.extend(legacy_parts_table.lines().map(|s| s.to_string()));
+                    }
+                    if !electronics_table.is_empty() {
+                        result.push("".to_string()); // Empty line
+                        result.extend(electronics_table.lines().map(|s| s.to_string()));
+                    }
+                    if !custom_parts_table.is_empty() {
+                        result.push("".to_string()); // Empty line
+                        result.extend(custom_parts_table.lines().map(|s| s.to_string()));
                     }
                     if !consumables_table.is_empty() {
                         result.push("".to_string()); // Empty line
@@ -385,7 +636,11 @@ fn insert_section_tables(
                         result.extend(tools_table.lines().map(|s| s.to_string()));
                     }
 
-                    let has_tables = !parts_table.is_empty()
+                    let has_tables = !hardware_table.is_empty()
+                        || !legacy_fasteners_table.is_empty()
+                        || !legacy_parts_table.is_empty()
+                        || !electronics_table.is_empty()
+                        || !custom_parts_table.is_empty()
                         || !consumables_table.is_empty()
                         || !tools_table.is_empty();
                     if has_tables {
@@ -400,23 +655,73 @@ fn insert_section_tables(
     result.join("\n")
 }
 
-fn generate_parts_table(parts: &[PartReference], inventory: &Inventory) -> String {
+fn generate_fasteners_table(parts: &[PartReference], inventory: &Inventory) -> String {
     if parts.is_empty() {
         return String::new();
     }
 
-    let mut table = String::from("<details>\n<summary><strong>🔩 Parts</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Part Number</th><th>Description</th><th>Quantity</th><th>Supplier</th></tr>\n</thead>\n<tbody>\n");
+    let mut table = String::from("<details>\n<summary><strong>🔩 Hardware</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n");
 
     for part_ref in parts {
-        if let Some(part) = inventory.parts.get(&part_ref.part_number) {
+        if let Some(part) = inventory.fasteners.get(&part_ref.name) {
             table.push_str(&format!(
-                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
-                part.part_number, part.description, part_ref.quantity, part.supplier
+                "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+                part.part_number, part.description.as_deref().unwrap_or("No description"), part_ref.quantity
             ));
         } else {
             table.push_str(&format!(
-                "<tr><td>{}</td><td>Part not found in inventory</td><td>{}</td><td>-</td></tr>\n",
-                part_ref.part_number, part_ref.quantity
+                "<tr><td>{}</td><td>Hardware not found in inventory</td><td>{}</td></tr>\n",
+                part_ref.name, part_ref.quantity
+            ));
+        }
+    }
+
+    table.push_str("</tbody>\n</table>\n<br>\n</details>\n\n");
+    table
+}
+
+fn generate_electronics_table(parts: &[PartReference], inventory: &Inventory) -> String {
+    if parts.is_empty() {
+        return String::new();
+    }
+
+    let mut table = String::from("<details>\n<summary><strong>🔌 Electronics</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n");
+
+    for part_ref in parts {
+        if let Some(part) = inventory.electronics.get(&part_ref.name) {
+            table.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+                part.part_number, part.description.as_deref().unwrap_or("No description"), part_ref.quantity
+            ));
+        } else {
+            table.push_str(&format!(
+                "<tr><td>{}</td><td>Electronic component not found in inventory</td><td>{}</td></tr>\n",
+                part_ref.name, part_ref.quantity
+            ));
+        }
+    }
+
+    table.push_str("</tbody>\n</table>\n<br>\n</details>\n\n");
+    table
+}
+
+fn generate_custom_parts_table(parts: &[PartReference], inventory: &Inventory) -> String {
+    if parts.is_empty() {
+        return String::new();
+    }
+
+    let mut table = String::from("<details>\n<summary><strong>⚙️ Custom Parts</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n");
+
+    for part_ref in parts {
+        if let Some(part) = inventory.custom_parts.get(&part_ref.name) {
+            table.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+                part.part_number, part.description.as_deref().unwrap_or("No description"), part_ref.quantity
+            ));
+        } else {
+            table.push_str(&format!(
+                "<tr><td>{}</td><td>Custom part not found in inventory</td><td>{}</td></tr>\n",
+                part_ref.name, part_ref.quantity
             ));
         }
     }
@@ -433,18 +738,18 @@ fn generate_consumables_table(
         return String::new();
     }
 
-    let mut table = String::from("<details>\n<summary><strong>🧪 Consumables</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Part Number</th><th>Description</th><th>Supplier</th></tr>\n</thead>\n<tbody>\n");
+    let mut table = String::from("<details>\n<summary><strong>🧪 Consumables</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th></tr>\n</thead>\n<tbody>\n");
 
     for consumable_ref in consumables {
-        if let Some(consumable) = inventory.consumables.get(&consumable_ref.part_number) {
+        if let Some(consumable) = inventory.consumables.get(&consumable_ref.name) {
             table.push_str(&format!(
-                "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
-                consumable.part_number, consumable.description, consumable.supplier
+                "<tr><td>{}</td><td>{}</td></tr>\n",
+                consumable.part_number, consumable.description.as_deref().unwrap_or("No description")
             ));
         } else {
             table.push_str(&format!(
-                "<tr><td>{}</td><td>Consumable not found in inventory</td><td>-</td></tr>\n",
-                consumable_ref.part_number
+                "<tr><td>{}</td><td>Consumable not found in inventory</td></tr>\n",
+                consumable_ref.name
             ));
         }
     }
@@ -466,7 +771,7 @@ fn generate_tools_table(tools: &[ToolReference], inventory: &Inventory) -> Strin
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
                 tool.name,
                 tool_ref.setting.as_deref().unwrap_or("-"),
-                tool.brand
+                tool.brand.as_deref().unwrap_or("No brand")
             ));
         } else {
             table.push_str(&format!(
@@ -481,24 +786,70 @@ fn generate_tools_table(tools: &[ToolReference], inventory: &Inventory) -> Strin
     table
 }
 
-fn accumulate_parts(
+fn accumulate_fasteners(
     parts: &[PartReference],
     inventory: &Inventory,
-    all_parts: &mut HashMap<String, BomItem>,
+    all_fasteners: &mut HashMap<String, BomFastenerItem>,
 ) {
     for part_ref in parts {
-        if let Some(inventory_part) = inventory.parts.get(&part_ref.part_number) {
-            let key = part_ref.part_number.clone();
+        if let Some(inventory_part) = inventory.fasteners.get(&part_ref.name) {
+            let key = part_ref.name.clone();
 
-            all_parts
+            all_fasteners
                 .entry(key)
                 .and_modify(|item| item.total_quantity += part_ref.quantity)
-                .or_insert_with(|| BomItem {
+                .or_insert_with(|| BomFastenerItem {
                     part_number: inventory_part.part_number.clone(),
-                    description: inventory_part.description.clone(),
-                    supplier: inventory_part.supplier.clone(),
+                    description: inventory_part.description.as_deref().unwrap_or("No description").to_string(),
+                    supplier: "N/A".to_string(), // No supplier in Excel
                     total_quantity: part_ref.quantity,
-                    unit_cost: Some(inventory_part.unit_cost),
+                    unit_cost: None, // No unit cost in Excel
+                });
+        }
+    }
+}
+
+fn accumulate_electronics(
+    parts: &[PartReference],
+    inventory: &Inventory,
+    all_electronics: &mut HashMap<String, BomElectronicItem>,
+) {
+    for part_ref in parts {
+        if let Some(inventory_part) = inventory.electronics.get(&part_ref.name) {
+            let key = part_ref.name.clone();
+
+            all_electronics
+                .entry(key)
+                .and_modify(|item| item.total_quantity += part_ref.quantity)
+                .or_insert_with(|| BomElectronicItem {
+                    part_number: inventory_part.part_number.clone(),
+                    description: inventory_part.description.as_deref().unwrap_or("No description").to_string(),
+                    supplier: "N/A".to_string(), // No supplier in Excel
+                    total_quantity: part_ref.quantity,
+                    unit_cost: None, // No unit cost in Excel
+                });
+        }
+    }
+}
+
+fn accumulate_custom_parts(
+    parts: &[PartReference],
+    inventory: &Inventory,
+    all_custom_parts: &mut HashMap<String, BomCustomPartItem>,
+) {
+    for part_ref in parts {
+        if let Some(inventory_part) = inventory.custom_parts.get(&part_ref.name) {
+            let key = part_ref.name.clone();
+
+            all_custom_parts
+                .entry(key)
+                .and_modify(|item| item.total_quantity += part_ref.quantity)
+                .or_insert_with(|| BomCustomPartItem {
+                    part_number: inventory_part.part_number.clone(),
+                    description: inventory_part.description.as_deref().unwrap_or("No description").to_string(),
+                    supplier: "N/A".to_string(), // No supplier in Excel
+                    total_quantity: part_ref.quantity,
+                    unit_cost: None, // No unit cost in Excel
                 });
         }
     }
@@ -510,17 +861,17 @@ fn accumulate_consumables(
     all_consumables: &mut HashMap<String, BomConsumableItem>,
 ) {
     for consumable_ref in consumables {
-        if let Some(inventory_consumable) = inventory.consumables.get(&consumable_ref.part_number) {
-            let key = consumable_ref.part_number.clone();
+        if let Some(inventory_consumable) = inventory.consumables.get(&consumable_ref.name) {
+            let key = consumable_ref.name.clone();
 
             // For consumables, we'll just track unique items (not quantities since they're often descriptive)
             all_consumables
                 .entry(key)
                 .or_insert_with(|| BomConsumableItem {
                     part_number: inventory_consumable.part_number.clone(),
-                    description: inventory_consumable.description.clone(),
-                    supplier: inventory_consumable.supplier.clone(),
-                    unit_cost: Some(inventory_consumable.unit_cost),
+                    description: inventory_consumable.description.as_deref().unwrap_or("No description").to_string(),
+                    supplier: "N/A".to_string(), // No supplier in Excel
+                    unit_cost: None, // No unit cost in Excel
                 });
         }
     }
@@ -551,7 +902,7 @@ fn accumulate_tools(
                     }
                     BomToolItem {
                         name: inventory_tool.name.clone(),
-                        brand: inventory_tool.brand.clone(),
+                        brand: inventory_tool.brand.as_deref().unwrap_or("No brand").to_string(),
                         settings,
                     }
                 });
@@ -565,30 +916,80 @@ fn create_output_directory() -> Result<(), Error> {
     Ok(())
 }
 
-fn generate_bom_file(parts: &HashMap<String, BomItem>) -> Result<(), Error> {
+fn generate_fasteners_file(fasteners: &HashMap<String, BomFastenerItem>) -> Result<(), Error> {
     let mut csv_content = String::new();
 
     // CSV Header
-    csv_content.push_str("Part Number,Description,Supplier,Quantity,Unit Cost\n");
+    csv_content.push_str("Part Number,Description,Quantity\n");
 
-    // Parts section
-    let mut sorted_parts: Vec<_> = parts.values().collect();
-    sorted_parts.sort_by(|a, b| a.description.cmp(&b.description));
+    // Fasteners section
+    let mut sorted_fasteners: Vec<_> = fasteners.values().collect();
+    sorted_fasteners.sort_by(|a, b| a.description.cmp(&b.description));
 
-    for part in sorted_parts {
+    for fastener in sorted_fasteners {
         csv_content.push_str(&format!(
-            "\"{}\",\"{}\",\"{}\",{},{:.2}\n",
-            part.part_number,
-            part.description,
-            part.supplier,
-            part.total_quantity,
-            part.unit_cost.unwrap_or(0.0)
+            "\"{}\",\"{}\",{}\n",
+            fastener.part_number,
+            fastener.description,
+            fastener.total_quantity
         ));
     }
 
-    // Write BOM to CSV file
-    std::fs::write("output/BOM.csv", csv_content)
-        .map_err(|e| Error::msg(format!("Failed to write BOM CSV file: {}", e)))?;
+    // Write fasteners to CSV file
+    std::fs::write("output/hardware.csv", csv_content)
+        .map_err(|e| Error::msg(format!("Failed to write hardware CSV file: {}", e)))?;
+
+    Ok(())
+}
+
+fn generate_electronics_file(electronics: &HashMap<String, BomElectronicItem>) -> Result<(), Error> {
+    let mut csv_content = String::new();
+
+    // CSV Header
+    csv_content.push_str("Name,Description,Quantity\n");
+
+    // Electronics section
+    let mut sorted_electronics: Vec<_> = electronics.values().collect();
+    sorted_electronics.sort_by(|a, b| a.description.cmp(&b.description));
+
+    for electronic in sorted_electronics {
+        csv_content.push_str(&format!(
+            "\"{}\",\"{}\",{}\n",
+            electronic.part_number,
+            electronic.description,
+            electronic.total_quantity
+        ));
+    }
+
+    // Write electronics to CSV file
+    std::fs::write("output/electronics.csv", csv_content)
+        .map_err(|e| Error::msg(format!("Failed to write electronics CSV file: {}", e)))?;
+
+    Ok(())
+}
+
+fn generate_custom_parts_file(custom_parts: &HashMap<String, BomCustomPartItem>) -> Result<(), Error> {
+    let mut csv_content = String::new();
+
+    // CSV Header
+    csv_content.push_str("Name,Description,Quantity\n");
+
+    // Custom parts section
+    let mut sorted_custom_parts: Vec<_> = custom_parts.values().collect();
+    sorted_custom_parts.sort_by(|a, b| a.description.cmp(&b.description));
+
+    for custom_part in sorted_custom_parts {
+        csv_content.push_str(&format!(
+            "\"{}\",\"{}\",{}\n",
+            custom_part.part_number,
+            custom_part.description,
+            custom_part.total_quantity
+        ));
+    }
+
+    // Write custom parts to CSV file
+    std::fs::write("output/custom_parts.csv", csv_content)
+        .map_err(|e| Error::msg(format!("Failed to write custom parts CSV file: {}", e)))?;
 
     Ok(())
 }
@@ -624,7 +1025,7 @@ fn generate_consumables_file(
     let mut csv_content = String::new();
 
     // CSV Header
-    csv_content.push_str("Part Number,Description,Supplier,Unit Cost\n");
+    csv_content.push_str("Name,Description\n");
 
     // Consumables section - only include consumables that were actually used
     let mut sorted_consumables: Vec<_> = consumables.values().collect();
@@ -632,11 +1033,9 @@ fn generate_consumables_file(
 
     for consumable in sorted_consumables {
         csv_content.push_str(&format!(
-            "\"{}\",\"{}\",\"{}\",{:.2}\n",
+            "\"{}\",\"{}\"\n",
             consumable.part_number,
-            consumable.description,
-            consumable.supplier,
-            consumable.unit_cost.unwrap_or(0.0)
+            consumable.description
         ));
     }
 
