@@ -666,7 +666,7 @@ fn generate_fasteners_table(parts: &[PartReference], inventory: &Inventory) -> S
         if let Some(part) = inventory.fasteners.get(&part_ref.name) {
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
-                part.part_number, part.description.as_deref().unwrap_or("No description"), part_ref.quantity
+                part.part_number, part.description.as_deref().unwrap_or("-"), part_ref.quantity
             ));
         } else {
             table.push_str(&format!(
@@ -691,7 +691,7 @@ fn generate_electronics_table(parts: &[PartReference], inventory: &Inventory) ->
         if let Some(part) = inventory.electronics.get(&part_ref.name) {
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
-                part.part_number, part.description.as_deref().unwrap_or("No description"), part_ref.quantity
+                part.part_number, part.description.as_deref().unwrap_or("-"), part_ref.quantity
             ));
         } else {
             table.push_str(&format!(
@@ -716,7 +716,7 @@ fn generate_custom_parts_table(parts: &[PartReference], inventory: &Inventory) -
         if let Some(part) = inventory.custom_parts.get(&part_ref.name) {
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
-                part.part_number, part.description.as_deref().unwrap_or("No description"), part_ref.quantity
+                part.part_number, part.description.as_deref().unwrap_or("-"), part_ref.quantity
             ));
         } else {
             table.push_str(&format!(
@@ -744,7 +744,7 @@ fn generate_consumables_table(
         if let Some(consumable) = inventory.consumables.get(&consumable_ref.name) {
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td></tr>\n",
-                consumable.part_number, consumable.description.as_deref().unwrap_or("No description")
+                consumable.part_number, consumable.description.as_deref().unwrap_or("-")
             ));
         } else {
             table.push_str(&format!(
@@ -771,7 +771,7 @@ fn generate_tools_table(tools: &[ToolReference], inventory: &Inventory) -> Strin
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
                 tool.name,
                 tool_ref.setting.as_deref().unwrap_or("-"),
-                tool.brand.as_deref().unwrap_or("No brand")
+                tool.brand.as_deref().unwrap_or("-")
             ));
         } else {
             table.push_str(&format!(
@@ -800,7 +800,7 @@ fn accumulate_fasteners(
                 .and_modify(|item| item.total_quantity += part_ref.quantity)
                 .or_insert_with(|| BomFastenerItem {
                     part_number: inventory_part.part_number.clone(),
-                    description: inventory_part.description.as_deref().unwrap_or("No description").to_string(),
+                    description: inventory_part.description.as_deref().unwrap_or("-").to_string(),
                     supplier: "N/A".to_string(), // No supplier in Excel
                     total_quantity: part_ref.quantity,
                     unit_cost: None, // No unit cost in Excel
@@ -823,7 +823,7 @@ fn accumulate_electronics(
                 .and_modify(|item| item.total_quantity += part_ref.quantity)
                 .or_insert_with(|| BomElectronicItem {
                     part_number: inventory_part.part_number.clone(),
-                    description: inventory_part.description.as_deref().unwrap_or("No description").to_string(),
+                    description: inventory_part.description.as_deref().unwrap_or("-").to_string(),
                     supplier: "N/A".to_string(), // No supplier in Excel
                     total_quantity: part_ref.quantity,
                     unit_cost: None, // No unit cost in Excel
@@ -846,7 +846,7 @@ fn accumulate_custom_parts(
                 .and_modify(|item| item.total_quantity += part_ref.quantity)
                 .or_insert_with(|| BomCustomPartItem {
                     part_number: inventory_part.part_number.clone(),
-                    description: inventory_part.description.as_deref().unwrap_or("No description").to_string(),
+                    description: inventory_part.description.as_deref().unwrap_or("-").to_string(),
                     supplier: "N/A".to_string(), // No supplier in Excel
                     total_quantity: part_ref.quantity,
                     unit_cost: None, // No unit cost in Excel
@@ -869,7 +869,7 @@ fn accumulate_consumables(
                 .entry(key)
                 .or_insert_with(|| BomConsumableItem {
                     part_number: inventory_consumable.part_number.clone(),
-                    description: inventory_consumable.description.as_deref().unwrap_or("No description").to_string(),
+                    description: inventory_consumable.description.as_deref().unwrap_or("-").to_string(),
                     supplier: "N/A".to_string(), // No supplier in Excel
                     unit_cost: None, // No unit cost in Excel
                 });
@@ -902,7 +902,7 @@ fn accumulate_tools(
                     }
                     BomToolItem {
                         name: inventory_tool.name.clone(),
-                        brand: inventory_tool.brand.as_deref().unwrap_or("No brand").to_string(),
+                        brand: inventory_tool.brand.as_deref().unwrap_or("-").to_string(),
                         settings,
                     }
                 });
