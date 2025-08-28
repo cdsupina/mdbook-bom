@@ -570,8 +570,26 @@ fn insert_section_tables(
     let step_headers = find_step_headers(content);
     let lines: Vec<&str> = content.lines().collect();
     let mut result = Vec::new();
+    let mut overview_inserted = false;
+
+    // Generate overview tables (without header)
+    let overview_section = generate_overview_tables(sections, inventory);
 
     for (line_idx, line) in lines.iter().enumerate() {
+        // Check if this is a top-level header (# Header) and insert overview after it
+        if !overview_inserted && line.starts_with("# ") && !line.starts_with("## ") {
+            result.push(line.to_string());
+            
+            // Insert overview tables after the top-level header
+            if !overview_section.trim().is_empty() {
+                result.push("".to_string()); // Empty line
+                result.extend(overview_section.lines().map(|s| s.to_string()));
+                result.push("".to_string()); // Empty line after overview
+            }
+            overview_inserted = true;
+            continue;
+        }
+
         // Check if this line is a step header and add horizontal rule before it (but not the first step)
         let is_step_header = step_headers
             .iter()
@@ -660,6 +678,141 @@ fn insert_section_tables(
     }
 
     result.join("\n")
+}
+
+fn generate_overview_tables(
+    sections: &std::collections::HashMap<String, SectionMetadata>,
+    inventory: &Inventory,
+) -> String {
+    // Aggregate all parts from all sections
+    let mut all_hardware = Vec::new();
+    let mut all_electronics = Vec::new();
+    let mut all_custom_parts = Vec::new();
+    let mut all_consumables = Vec::new();
+    let mut all_tools = Vec::new();
+
+    for section_metadata in sections.values() {
+        // Collect hardware
+        if let Some(hardware) = &section_metadata.hardware {
+            all_hardware.extend(hardware.clone());
+        }
+        if let Some(legacy_fasteners) = &section_metadata.fasteners {
+            all_hardware.extend(legacy_fasteners.clone());
+        }
+        if let Some(legacy_parts) = &section_metadata.parts {
+            all_hardware.extend(legacy_parts.clone());
+        }
+        
+        // Collect other categories
+        if let Some(electronics) = &section_metadata.electronics {
+            all_electronics.extend(electronics.clone());
+        }
+        if let Some(custom_parts) = &section_metadata.custom_parts {
+            all_custom_parts.extend(custom_parts.clone());
+        }
+        if let Some(consumables) = &section_metadata.consumables {
+            all_consumables.extend(consumables.clone());
+        }
+        if let Some(tools) = &section_metadata.tools {
+            all_tools.extend(tools.clone());
+        }
+    }
+
+    // Deduplicate and combine quantities
+    let combined_hardware = combine_parts(&all_hardware);
+    let combined_electronics = combine_parts(&all_electronics);
+    let combined_custom_parts = combine_parts(&all_custom_parts);
+    let combined_consumables = deduplicate_consumables(&all_consumables);
+    let combined_tools = deduplicate_tools(&all_tools);
+
+    let mut overview = String::new();
+
+    // Generate overview tables
+    let hardware_table = generate_fasteners_table(&combined_hardware, inventory, "overview");
+    let electronics_table = generate_electronics_table(&combined_electronics, inventory, "overview");
+    let custom_parts_table = generate_custom_parts_table(&combined_custom_parts, inventory, "overview");
+    let consumables_table = generate_consumables_table(&combined_consumables, inventory, "overview");
+    let tools_table = generate_tools_table(&combined_tools, inventory, "overview");
+
+    let has_tables = !hardware_table.is_empty()
+        || !electronics_table.is_empty()
+        || !custom_parts_table.is_empty()
+        || !consumables_table.is_empty()
+        || !tools_table.is_empty();
+
+    if has_tables {
+        overview.push_str(&generate_show_all_button("overview"));
+        overview.push_str("\n");
+
+        if !hardware_table.is_empty() {
+            overview.push_str(&hardware_table);
+            overview.push_str("\n");
+        }
+        if !electronics_table.is_empty() {
+            overview.push_str(&electronics_table);
+            overview.push_str("\n");
+        }
+        if !custom_parts_table.is_empty() {
+            overview.push_str(&custom_parts_table);
+            overview.push_str("\n");
+        }
+        if !consumables_table.is_empty() {
+            overview.push_str(&consumables_table);
+            overview.push_str("\n");
+        }
+        if !tools_table.is_empty() {
+            overview.push_str(&tools_table);
+            overview.push_str("\n");
+        }
+    }
+
+    overview
+}
+
+fn combine_parts(parts: &[PartReference]) -> Vec<PartReference> {
+    let mut combined: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    
+    for part in parts {
+        *combined.entry(part.name.clone()).or_insert(0) += part.quantity;
+    }
+    
+    combined
+        .into_iter()
+        .map(|(name, quantity)| PartReference { name, quantity })
+        .collect()
+}
+
+fn deduplicate_consumables(consumables: &[ConsumableReference]) -> Vec<ConsumableReference> {
+    let mut seen = std::collections::HashSet::new();
+    consumables
+        .iter()
+        .filter(|c| seen.insert(&c.name))
+        .cloned()
+        .collect()
+}
+
+fn deduplicate_tools(tools: &[ToolReference]) -> Vec<ToolReference> {
+    let mut combined: std::collections::HashMap<String, std::collections::HashSet<String>> = 
+        std::collections::HashMap::new();
+    
+    for tool in tools {
+        let settings = combined.entry(tool.name.clone()).or_insert_with(std::collections::HashSet::new);
+        if let Some(setting) = &tool.setting {
+            settings.insert(setting.clone());
+        }
+    }
+    
+    combined
+        .into_iter()
+        .map(|(name, settings)| {
+            let setting = if settings.is_empty() {
+                None
+            } else {
+                Some(settings.into_iter().collect::<Vec<_>>().join(", "))
+            };
+            ToolReference { name, setting }
+        })
+        .collect()
 }
 
 fn generate_show_all_button(section_id: &str) -> String {
