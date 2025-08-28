@@ -351,10 +351,10 @@ impl Preprocessor for BomPreprocessor {
                             let tools = metadata.tools.as_deref().unwrap_or_default();
 
                             // Generate tables for this chapter (legacy behavior)
-                            let parts_table = generate_fasteners_table(parts, &inventory);
+                            let parts_table = generate_fasteners_table(parts, &inventory, "legacy");
                             let consumables_table =
-                                generate_consumables_table(consumables, &inventory);
-                            let tools_table = generate_tools_table(tools, &inventory);
+                                generate_consumables_table(consumables, &inventory, "legacy");
+                            let tools_table = generate_tools_table(tools, &inventory, "legacy");
 
                             // Prepend tables to chapter content
                             let mut new_content = String::new();
@@ -599,13 +599,27 @@ fn insert_section_tables(
                     // Legacy support
                     let legacy_parts = section_metadata.parts.as_deref().unwrap_or_default();
 
-                    let hardware_table = generate_fasteners_table(hardware, inventory);
-                    let legacy_fasteners_table = generate_fasteners_table(legacy_fasteners, inventory);
-                    let legacy_parts_table = generate_fasteners_table(legacy_parts, inventory);
-                    let electronics_table = generate_electronics_table(electronics, inventory);
-                    let custom_parts_table = generate_custom_parts_table(custom_parts, inventory);
-                    let consumables_table = generate_consumables_table(consumables, inventory);
-                    let tools_table = generate_tools_table(tools, inventory);
+                    let hardware_table = generate_fasteners_table(hardware, inventory, step_key);
+                    let legacy_fasteners_table = generate_fasteners_table(legacy_fasteners, inventory, step_key);
+                    let legacy_parts_table = generate_fasteners_table(legacy_parts, inventory, step_key);
+                    let electronics_table = generate_electronics_table(electronics, inventory, step_key);
+                    let custom_parts_table = generate_custom_parts_table(custom_parts, inventory, step_key);
+                    let consumables_table = generate_consumables_table(consumables, inventory, step_key);
+                    let tools_table = generate_tools_table(tools, inventory, step_key);
+
+                    let has_tables = !hardware_table.is_empty()
+                        || !legacy_fasteners_table.is_empty()
+                        || !legacy_parts_table.is_empty()
+                        || !electronics_table.is_empty()
+                        || !custom_parts_table.is_empty()
+                        || !consumables_table.is_empty()
+                        || !tools_table.is_empty();
+                    
+                    if has_tables {
+                        // Add Show All button before tables
+                        result.push("".to_string()); // Empty line
+                        result.push(generate_show_all_button(step_key));
+                    }
 
                     if !hardware_table.is_empty() {
                         result.push("".to_string()); // Empty line
@@ -636,13 +650,6 @@ fn insert_section_tables(
                         result.extend(tools_table.lines().map(|s| s.to_string()));
                     }
 
-                    let has_tables = !hardware_table.is_empty()
-                        || !legacy_fasteners_table.is_empty()
-                        || !legacy_parts_table.is_empty()
-                        || !electronics_table.is_empty()
-                        || !custom_parts_table.is_empty()
-                        || !consumables_table.is_empty()
-                        || !tools_table.is_empty();
                     if has_tables {
                         result.push("".to_string()); // Empty line after BOM tables
                     }
@@ -655,12 +662,61 @@ fn insert_section_tables(
     result.join("\n")
 }
 
-fn generate_fasteners_table(parts: &[PartReference], inventory: &Inventory) -> String {
+fn generate_show_all_button(section_id: &str) -> String {
+    format!(r#"
+<button onclick="toggleAllTables('{}')" class="bom-show-all-button" style="
+    background: transparent;
+    color: var(--icons, #747474);
+    border: 1px solid var(--icons, #747474);
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    margin-bottom: 10px;
+    transition: all 0.2s ease;
+" onmouseover="
+    this.style.color='var(--icons-hover, #000000)';
+    this.style.borderColor='var(--icons-hover, #000000)';
+    this.style.backgroundColor='var(--theme-hover, #e6e6e6)';
+" onmouseout="
+    this.style.color='var(--icons, #747474)';
+    this.style.borderColor='var(--icons, #747474)';
+    this.style.backgroundColor='transparent';
+">
+    Show All
+</button>
+
+<script>
+function toggleAllTables(sectionId) {{
+    const button = event.target;
+    const isShowing = button.textContent === 'Hide All';
+    const newState = !isShowing;
+    const newText = newState ? 'Hide All' : 'Show All';
+    
+    button.textContent = newText;
+    
+    // Find all details elements for this section
+    const detailsElements = [
+        document.getElementById('hardware-' + sectionId),
+        document.getElementById('electronics-' + sectionId),
+        document.getElementById('custom_parts-' + sectionId),
+        document.getElementById('consumables-' + sectionId),
+        document.getElementById('tools-' + sectionId)
+    ].filter(el => el !== null);
+    
+    detailsElements.forEach(details => {{
+        details.open = newState;
+    }});
+}}
+</script>"#, section_id)
+}
+
+fn generate_fasteners_table(parts: &[PartReference], inventory: &Inventory, section_id: &str) -> String {
     if parts.is_empty() {
         return String::new();
     }
 
-    let mut table = String::from("<details>\n<summary><strong>🔩 Hardware</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n");
+    let mut table = String::from(&format!("<details id=\"hardware-{}\">\n<summary><strong>🔩 Hardware</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id));
 
     for part_ref in parts {
         if let Some(part) = inventory.fasteners.get(&part_ref.name) {
@@ -680,12 +736,12 @@ fn generate_fasteners_table(parts: &[PartReference], inventory: &Inventory) -> S
     table
 }
 
-fn generate_electronics_table(parts: &[PartReference], inventory: &Inventory) -> String {
+fn generate_electronics_table(parts: &[PartReference], inventory: &Inventory, section_id: &str) -> String {
     if parts.is_empty() {
         return String::new();
     }
 
-    let mut table = String::from("<details>\n<summary><strong>🔌 Electronics</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n");
+    let mut table = String::from(&format!("<details id=\"electronics-{}\">\n<summary><strong>🔌 Electronics</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id));
 
     for part_ref in parts {
         if let Some(part) = inventory.electronics.get(&part_ref.name) {
@@ -705,12 +761,12 @@ fn generate_electronics_table(parts: &[PartReference], inventory: &Inventory) ->
     table
 }
 
-fn generate_custom_parts_table(parts: &[PartReference], inventory: &Inventory) -> String {
+fn generate_custom_parts_table(parts: &[PartReference], inventory: &Inventory, section_id: &str) -> String {
     if parts.is_empty() {
         return String::new();
     }
 
-    let mut table = String::from("<details>\n<summary><strong>⚙️ Custom Parts</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n");
+    let mut table = String::from(&format!("<details id=\"custom_parts-{}\">\n<summary><strong>⚙️ Custom Parts</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id));
 
     for part_ref in parts {
         if let Some(part) = inventory.custom_parts.get(&part_ref.name) {
@@ -733,12 +789,13 @@ fn generate_custom_parts_table(parts: &[PartReference], inventory: &Inventory) -
 fn generate_consumables_table(
     consumables: &[ConsumableReference],
     inventory: &Inventory,
+    section_id: &str,
 ) -> String {
     if consumables.is_empty() {
         return String::new();
     }
 
-    let mut table = String::from("<details>\n<summary><strong>🧪 Consumables</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th></tr>\n</thead>\n<tbody>\n");
+    let mut table = String::from(&format!("<details id=\"consumables-{}\">\n<summary><strong>🧪 Consumables</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th></tr>\n</thead>\n<tbody>\n", section_id));
 
     for consumable_ref in consumables {
         if let Some(consumable) = inventory.consumables.get(&consumable_ref.name) {
@@ -758,12 +815,12 @@ fn generate_consumables_table(
     table
 }
 
-fn generate_tools_table(tools: &[ToolReference], inventory: &Inventory) -> String {
+fn generate_tools_table(tools: &[ToolReference], inventory: &Inventory, section_id: &str) -> String {
     if tools.is_empty() {
         return String::new();
     }
 
-    let mut table = String::from("<details>\n<summary><strong>🔧 Tools</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Setting</th><th>Brand</th></tr>\n</thead>\n<tbody>\n");
+    let mut table = String::from(&format!("<details id=\"tools-{}\">\n<summary><strong>🔧 Tools</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Setting</th><th>Brand</th></tr>\n</thead>\n<tbody>\n", section_id));
 
     for tool_ref in tools {
         if let Some(tool) = inventory.tools.get(&tool_ref.name) {
