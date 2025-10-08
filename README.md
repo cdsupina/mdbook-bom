@@ -5,11 +5,11 @@ A preprocessor for [mdBook](https://rust-lang.github.io/mdBook/) that generates 
 ## Features
 
 - **Section-specific metadata**: Define parts, tools, and consumables per assembly step
-- **Automatic table generation**: Tables are inserted after step headers in the rendered book
-- **BOM generation**: Creates consolidated CSV files for parts, tools, and consumables
-- **Inventory lookup**: Uses separate CSV inventory files for part details
+- **Automatic table generation**: Collapsible tables are inserted after step headers in the rendered book
+- **BOM generation**: Creates consolidated Excel workbook with sheets for each component category
+- **Inventory lookup**: Uses Excel inventory file with multiple sheets for component details
 - **Flexible step matching**: Supports both `## Step 1:` and `## Step 1` header formats
-- **Backwards compatibility**: Supports legacy chapter-level front matter
+- **Interactive UI**: Show All/Hide All buttons to toggle component tables visibility
 
 ## Installation
 
@@ -25,49 +25,64 @@ Add the preprocessor to your `book.toml`:
 
 ```toml
 [preprocessor.bom]
+inventory_file = "~/path/to/inventory.xlsx"  # Required - path to Excel inventory
+output_path = "output/BOM.xlsx"              # Required - where to write BOM output
 ```
 
-### 2. Create inventory files
+### 2. Create inventory file
 
-Create CSV inventory files in your project:
+Create an Excel inventory file with the following sheets:
 
-**inventory/parts.csv:**
-```csv
-part_number,description,supplier,unit_cost
-SCREW-001,M4x20mm socket head cap screw,McMaster-Carr,0.15
-```
+**Hardware sheet:**
+| Name | Description |
+|------|-------------|
+| SCREW-M4x20 | M4x20mm socket head cap screw |
 
-**inventory/consumables.csv:**
-```csv
-part_number,description,supplier,unit_cost
-THREADLOCK-001,Loctite 242 threadlocker,McMaster-Carr,8.50
-```
+**Electronics sheet:**
+| Name | Description |
+|------|-------------|
+| LED-RED-5MM | 5mm red LED |
 
-**inventory/tools.csv:**
-```csv
-part_number,description,supplier
-ALLEN-4MM,4mm hex allen key,McMaster-Carr
-```
+**Custom Parts sheet:**
+| Name | Description |
+|------|-------------|
+| BRACKET-001 | Custom mounting bracket |
+
+**Consumables sheet:**
+| Name | Description |
+|------|-------------|
+| THREADLOCK-242 | Loctite 242 threadlocker |
+
+**Tools sheet:**
+| Name | Brand |
+|------|-------|
+| ALLEN-4MM | Wiha |
 
 ### 3. Add front matter to chapters
 
-Use section-based YAML front matter in your markdown chapters:
+Add YAML front matter to your markdown chapters:
 
 ```yaml
 ---
 sections:
   step_1:
     consumables:
-      - part_number: "CLEANER-001"
+      - name: "THREADLOCK-242"
     tools:
-      - part_number: "SAFETY-GLASSES"
+      - name: "SAFETY-GLASSES"
   step_2:
-    parts:
-      - part_number: "SCREW-001"
+    hardware:
+      - name: "SCREW-M4x20"
         quantity: 4
+    electronics:
+      - name: "LED-RED-5MM"
+        quantity: 2
+    custom_parts:
+      - name: "BRACKET-001"
+        quantity: 1
     tools:
-      - part_number: "ALLEN-4MM"
-      - part_number: "TORQUE-WRENCH"
+      - name: "ALLEN-4MM"
+      - name: "TORQUE-WRENCH"
         setting: "5 Nm"
 ---
 
@@ -87,43 +102,42 @@ mdbook build
 ```
 
 The preprocessor will:
-- Insert requirement tables after each step header
-- Generate `output/BOM.csv` with consolidated parts list
-- Generate `output/tools.csv` with required tools
-- Generate `output/consumables.csv` with consumables list
+- Insert collapsible requirement tables after each step header
+- Insert an overview table at the top of each chapter with all components needed
+- Generate Excel workbook at the specified `output_path` with consolidated BOM
 
 ## Output Files
 
-The preprocessor generates three CSV files in the `output/` directory:
+The preprocessor generates an Excel workbook with separate sheets:
 
-- **BOM.csv**: Parts with quantities and costs
-- **tools.csv**: Tools required (without settings column)  
-- **consumables.csv**: Consumables with costs
+- **Hardware**: All hardware/fasteners with quantities
+- **Electronics**: All electronic components with quantities
+- **Custom Parts**: All custom parts with quantities
+- **Tools**: All required tools with brands (settings not included in BOM)
+- **Consumables**: All consumables needed
 
 ## Front Matter Structure
 
-### Section-based (recommended)
 ```yaml
 sections:
   step_1:
-    parts:
-      - part_number: "PART-001"
+    hardware:
+      - name: "SCREW-M4x20"
         quantity: 2
+    electronics:
+      - name: "LED-RED-5MM"
+        quantity: 1
+    custom_parts:
+      - name: "BRACKET-001"
+        quantity: 1
     consumables:
-      - part_number: "CONSUMABLE-001"
+      - name: "THREADLOCK-242"
     tools:
-      - part_number: "TOOL-001"
+      - name: "ALLEN-4MM"
         setting: "5 Nm"  # Optional setting
 ```
 
-### Legacy chapter-level (backwards compatible)
-```yaml
-parts:
-  - part_number: "PART-001"
-    quantity: 2
-tools:
-  - part_number: "TOOL-001"
-```
+All fields (hardware, electronics, custom_parts, consumables, tools) are optional for each step.
 
 ## Step Header Matching
 
