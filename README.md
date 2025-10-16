@@ -25,9 +25,18 @@ Add the preprocessor to your `book.toml`:
 
 ```toml
 [preprocessor.bom]
-inventory_file = "~/path/to/inventory.xlsx"  # Required - path to Excel inventory
-output_path = "output/BOM.xlsx"              # Required - where to write BOM output
+command = "mdbook-bom"
 ```
+
+Create a `.env` file in your book's root directory with the configuration:
+
+```bash
+# .env (gitignored - do not commit!)
+BOM_INVENTORY_FILE="/path/to/inventory.xlsx"
+BOM_OUTPUT_PATH="/path/to/output/BOM.xlsx"
+```
+
+**Important**: Add `.env` to your `.gitignore` file to keep local paths out of version control.
 
 ### 2. Create inventory file
 
@@ -58,7 +67,17 @@ Create an Excel inventory file with the following sheets:
 |------|-------|
 | ALLEN-4MM | Wiha |
 
-### 3. Add front matter to chapters
+### 3. Setup .gitignore
+
+Add `.env` to your `.gitignore`:
+
+```
+.env
+```
+
+You can also create a `.env.example` file to document the required variables for other developers.
+
+### 4. Add front matter to chapters
 
 Add YAML front matter to your markdown chapters:
 
@@ -95,7 +114,7 @@ Instructions here...
 More instructions...
 ```
 
-### 4. Build your book
+### 5. Build your book
 
 ```bash
 mdbook build
@@ -104,7 +123,7 @@ mdbook build
 The preprocessor will:
 - Insert collapsible requirement tables after each step header
 - Insert an overview table at the top of each chapter with all components needed
-- Generate Excel workbook at the specified `output_path` with consolidated BOM
+- Generate Excel workbook at the path specified in `BOM_OUTPUT_PATH` with consolidated BOM
 
 ## Output Files
 

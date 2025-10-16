@@ -19,6 +19,10 @@ pub fn make_app() -> Command {
 }
 
 fn main() {
+    // Load .env file if present (for local configuration)
+    // Silently ignore if .env file doesn't exist
+    let _ = dotenvy::dotenv();
+
     let matches = make_app().get_matches();
 
     if let Some(sub_args) = matches.subcommand_matches("supports") {
@@ -240,36 +244,15 @@ impl Preprocessor for BomPreprocessor {
     }
 
     fn run(&self, ctx: &PreprocessorContext, mut book: Book) -> Result<Book, Error> {
-        // Check for Excel inventory file configuration and output path
-        let (excel_path, output_path) =
-            if let Some(bom_cfg) = ctx.config.get_preprocessor(self.name()) {
-                let inventory_file = if let Some(inventory_file) = bom_cfg.get("inventory_file") {
-                    inventory_file.as_str()
-                } else {
-                    None
-                };
+        // Read configuration from environment variables (loaded from .env file)
+        let excel_path = std::env::var("BOM_INVENTORY_FILE")
+            .map_err(|_| Error::msg("BOM_INVENTORY_FILE environment variable is required. Set it in .env file in the book directory."))?;
 
-                let output_path = if let Some(path) = bom_cfg.get("output_path") {
-                    path.as_str()
-                } else {
-                    None
-                };
-
-                (inventory_file, output_path)
-            } else {
-                (None, None)
-            };
-
-        // Validate that both inventory_file and output_path are provided
-        let excel_path = excel_path.ok_or_else(|| {
-            Error::msg("inventory_file parameter is required in [preprocessor.bom] configuration")
-        })?;
-        let output_path = output_path.ok_or_else(|| {
-            Error::msg("output_path parameter is required in [preprocessor.bom] configuration")
-        })?;
+        let output_path = std::env::var("BOM_OUTPUT_PATH")
+            .map_err(|_| Error::msg("BOM_OUTPUT_PATH environment variable is required. Set it in .env file in the book directory."))?;
 
         // Load inventory data
-        let inventory = Inventory::load(excel_path)?;
+        let inventory = Inventory::load(&excel_path)?;
 
         let mut all_fasteners: HashMap<String, BomFastenerItem> = HashMap::new();
         let mut all_electronics: HashMap<String, BomElectronicItem> = HashMap::new();
@@ -325,7 +308,7 @@ impl Preprocessor for BomPreprocessor {
         });
 
         // Create directory for output file
-        create_output_directory_for_path(output_path)?;
+        create_output_directory_for_path(&output_path)?;
 
         // Generate BOM Excel file
         generate_bom_excel_file(
@@ -334,7 +317,7 @@ impl Preprocessor for BomPreprocessor {
             &all_custom_parts,
             &all_consumables,
             &all_tools,
-            output_path,
+            &output_path,
         )?;
 
         Ok(book)
