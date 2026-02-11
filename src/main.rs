@@ -59,6 +59,7 @@ struct Inventory {
     custom_parts: HashMap<String, InventoryCustomPart>,
     consumables: HashMap<String, InventoryConsumable>,
     tools: HashMap<String, InventoryTool>,
+    assemblies: HashMap<String, InventoryAssembly>,
 }
 
 impl Inventory {
@@ -90,6 +91,7 @@ impl Inventory {
         let custom_parts = Self::load_custom_parts_from_excel(&expanded_path)?;
         let consumables = Self::load_consumables_from_excel(&expanded_path)?;
         let tools = Self::load_tools_from_excel(&expanded_path)?;
+        let assemblies = Self::load_assemblies_from_excel(&expanded_path)?;
 
         Ok(Inventory {
             fasteners,
@@ -97,6 +99,7 @@ impl Inventory {
             custom_parts,
             consumables,
             tools,
+            assemblies,
         })
     }
 
@@ -234,6 +237,35 @@ impl Inventory {
 
         Ok(tools)
     }
+
+    fn load_assemblies_from_excel(
+        excel_path: &str,
+    ) -> Result<HashMap<String, InventoryAssembly>, Error> {
+        let mut workbook: Xlsx<_> = open_workbook(excel_path)
+            .map_err(|e| Error::msg(format!("Failed to open Excel file: {}", e)))?;
+
+        let range = workbook
+            .worksheet_range("Assemblies")
+            .map_err(|e| Error::msg(format!("Failed to read 'Assemblies' sheet: {}", e)))?;
+
+        let mut assemblies = HashMap::new();
+        let iter = RangeDeserializerBuilder::new()
+            .from_range(&range)
+            .map_err(|e| {
+                Error::msg(format!(
+                    "Failed to create deserializer for assemblies: {}",
+                    e
+                ))
+            })?;
+
+        for result in iter {
+            let assembly: InventoryAssembly =
+                result.map_err(|e| Error::msg(format!("Failed to parse assembly row: {}", e)))?;
+            assemblies.insert(assembly.name.clone(), assembly);
+        }
+
+        Ok(assemblies)
+    }
 }
 
 pub struct BomPreprocessor;
@@ -243,7 +275,7 @@ impl Preprocessor for BomPreprocessor {
         "bom"
     }
 
-    fn run(&self, ctx: &PreprocessorContext, mut book: Book) -> Result<Book, Error> {
+    fn run(&self, _ctx: &PreprocessorContext, mut book: Book) -> Result<Book, Error> {
         // Read configuration from environment variables (loaded from .env file)
         let excel_path = std::env::var("BOM_INVENTORY_FILE")
             .map_err(|_| Error::msg("BOM_INVENTORY_FILE environment variable is required. Set it in .env file in the book directory."))?;
@@ -259,6 +291,7 @@ impl Preprocessor for BomPreprocessor {
         let mut all_custom_parts: HashMap<String, BomCustomPartItem> = HashMap::new();
         let mut all_consumables: HashMap<String, BomConsumableItem> = HashMap::new();
         let mut all_tools: HashMap<String, BomToolItem> = HashMap::new();
+        let mut all_assemblies: HashMap<String, BomAssemblyItem> = HashMap::new();
 
         book.for_each_mut(|item: &mut BookItem| {
             if let BookItem::Chapter(ch) = item {
@@ -283,6 +316,8 @@ impl Preprocessor for BomPreprocessor {
                             let consumables =
                                 section_metadata.consumables.as_deref().unwrap_or_default();
                             let tools = section_metadata.tools.as_deref().unwrap_or_default();
+                            let assemblies =
+                                section_metadata.assemblies.as_deref().unwrap_or_default();
 
                             accumulate_fasteners(hardware, &inventory, &mut all_fasteners);
                             accumulate_electronics(
@@ -301,6 +336,11 @@ impl Preprocessor for BomPreprocessor {
                                 &mut all_consumables,
                             );
                             accumulate_tools(tools, &inventory, &mut all_tools);
+                            accumulate_assemblies(
+                                assemblies,
+                                &inventory,
+                                &mut all_assemblies,
+                            );
                         }
                     }
                 }
@@ -317,6 +357,7 @@ impl Preprocessor for BomPreprocessor {
             &all_custom_parts,
             &all_consumables,
             &all_tools,
+            &all_assemblies,
             &output_path,
         )?;
 
@@ -336,6 +377,7 @@ struct SectionMetadata {
     custom_parts: Option<Vec<PartReference>>,
     consumables: Option<Vec<ConsumableReference>>,
     tools: Option<Vec<ToolReference>>,
+    assemblies: Option<Vec<AssemblyReference>>,
 }
 
 // Simplified front matter structures
@@ -343,17 +385,31 @@ struct SectionMetadata {
 struct PartReference {
     name: String,
     quantity: u32,
+    #[serde(default)]
+    exclude_from_bom: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct ConsumableReference {
     name: String,
+    #[serde(default)]
+    exclude_from_bom: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct ToolReference {
     name: String,
     setting: Option<String>,
+    #[serde(default)]
+    exclude_from_bom: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct AssemblyReference {
+    name: String,
+    quantity: u32,
+    #[serde(default)]
+    exclude_from_bom: bool,
 }
 
 // Inventory structures
@@ -395,6 +451,14 @@ struct InventoryTool {
     name: String,
     #[serde(rename = "Brand", default)]
     brand: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct InventoryAssembly {
+    #[serde(rename = "Name")]
+    name: String,
+    #[serde(rename = "Description", default)]
+    description: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -445,6 +509,13 @@ struct BomToolItem {
     name: String,
     brand: String,
     settings: Vec<String>, // Multiple settings from different chapters
+}
+
+#[derive(Debug, Clone)]
+struct BomAssemblyItem {
+    name: String,
+    description: String,
+    total_quantity: u32,
 }
 
 fn extract_front_matter(content: &str) -> Option<String> {
@@ -531,6 +602,7 @@ fn insert_section_tables(
                     let custom_parts = section_metadata.custom_parts.as_deref().unwrap_or_default();
                     let consumables = section_metadata.consumables.as_deref().unwrap_or_default();
                     let tools = section_metadata.tools.as_deref().unwrap_or_default();
+                    let assemblies = section_metadata.assemblies.as_deref().unwrap_or_default();
 
                     let hardware_table = generate_fasteners_table(hardware, inventory, step_key);
                     let electronics_table =
@@ -540,12 +612,15 @@ fn insert_section_tables(
                     let consumables_table =
                         generate_consumables_table(consumables, inventory, step_key);
                     let tools_table = generate_tools_table(tools, inventory, step_key);
+                    let assemblies_table =
+                        generate_assemblies_table(assemblies, inventory, step_key);
 
                     let has_tables = !hardware_table.is_empty()
                         || !electronics_table.is_empty()
                         || !custom_parts_table.is_empty()
                         || !consumables_table.is_empty()
-                        || !tools_table.is_empty();
+                        || !tools_table.is_empty()
+                        || !assemblies_table.is_empty();
 
                     if has_tables {
                         // Add Show All button before tables
@@ -573,6 +648,10 @@ fn insert_section_tables(
                         result.push("".to_string()); // Empty line
                         result.extend(tools_table.lines().map(|s| s.to_string()));
                     }
+                    if !assemblies_table.is_empty() {
+                        result.push("".to_string()); // Empty line
+                        result.extend(assemblies_table.lines().map(|s| s.to_string()));
+                    }
 
                     if has_tables {
                         result.push("".to_string()); // Empty line after BOM tables
@@ -596,6 +675,7 @@ fn generate_overview_tables(
     let mut all_custom_parts = Vec::new();
     let mut all_consumables = Vec::new();
     let mut all_tools = Vec::new();
+    let mut all_assemblies = Vec::new();
 
     for section_metadata in sections.values() {
         // Collect hardware
@@ -616,6 +696,9 @@ fn generate_overview_tables(
         if let Some(tools) = &section_metadata.tools {
             all_tools.extend(tools.clone());
         }
+        if let Some(assemblies) = &section_metadata.assemblies {
+            all_assemblies.extend(assemblies.clone());
+        }
     }
 
     // Deduplicate and combine quantities
@@ -624,6 +707,7 @@ fn generate_overview_tables(
     let combined_custom_parts = combine_parts(&all_custom_parts);
     let combined_consumables = deduplicate_consumables(&all_consumables);
     let combined_tools = deduplicate_tools(&all_tools);
+    let combined_assemblies = combine_assemblies(&all_assemblies);
 
     let mut overview = String::new();
 
@@ -636,12 +720,15 @@ fn generate_overview_tables(
     let consumables_table =
         generate_consumables_table(&combined_consumables, inventory, "overview");
     let tools_table = generate_tools_table(&combined_tools, inventory, "overview");
+    let assemblies_table =
+        generate_assemblies_table(&combined_assemblies, inventory, "overview");
 
     let has_tables = !hardware_table.is_empty()
         || !electronics_table.is_empty()
         || !custom_parts_table.is_empty()
         || !consumables_table.is_empty()
-        || !tools_table.is_empty();
+        || !tools_table.is_empty()
+        || !assemblies_table.is_empty();
 
     if has_tables {
         overview.push_str(&generate_show_all_button("overview"));
@@ -667,53 +754,93 @@ fn generate_overview_tables(
             overview.push_str(&tools_table);
             overview.push('\n');
         }
+        if !assemblies_table.is_empty() {
+            overview.push_str(&assemblies_table);
+            overview.push('\n');
+        }
     }
 
     overview
 }
 
 fn combine_parts(parts: &[PartReference]) -> Vec<PartReference> {
-    let mut combined: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    let mut combined: std::collections::HashMap<String, (u32, bool)> =
+        std::collections::HashMap::new();
 
     for part in parts {
-        *combined.entry(part.name.clone()).or_insert(0) += part.quantity;
+        combined
+            .entry(part.name.clone())
+            .and_modify(|(qty, excluded)| {
+                *qty += part.quantity;
+                // Only exclude if ALL references exclude it
+                *excluded = *excluded && part.exclude_from_bom;
+            })
+            .or_insert((part.quantity, part.exclude_from_bom));
     }
 
     combined
         .into_iter()
-        .map(|(name, quantity)| PartReference { name, quantity })
+        .map(|(name, (quantity, exclude_from_bom))| PartReference {
+            name,
+            quantity,
+            exclude_from_bom,
+        })
         .collect()
 }
 
 fn deduplicate_consumables(consumables: &[ConsumableReference]) -> Vec<ConsumableReference> {
-    let mut seen = std::collections::HashSet::new();
-    consumables
-        .iter()
-        .filter(|c| seen.insert(&c.name))
-        .cloned()
-        .collect()
-}
-
-fn deduplicate_tools(tools: &[ToolReference]) -> Vec<ToolReference> {
-    let mut combined: std::collections::HashMap<String, std::collections::HashSet<String>> =
+    let mut combined: std::collections::HashMap<String, bool> =
         std::collections::HashMap::new();
 
-    for tool in tools {
-        let settings = combined.entry(tool.name.clone()).or_default();
-        if let Some(setting) = &tool.setting {
-            settings.insert(setting.clone());
-        }
+    for consumable in consumables {
+        combined
+            .entry(consumable.name.clone())
+            .and_modify(|excluded| {
+                // Only exclude if ALL references exclude it
+                *excluded = *excluded && consumable.exclude_from_bom;
+            })
+            .or_insert(consumable.exclude_from_bom);
     }
 
     combined
         .into_iter()
-        .map(|(name, settings)| {
+        .map(|(name, exclude_from_bom)| ConsumableReference {
+            name,
+            exclude_from_bom,
+        })
+        .collect()
+}
+
+fn deduplicate_tools(tools: &[ToolReference]) -> Vec<ToolReference> {
+    let mut combined: std::collections::HashMap<
+        String,
+        (std::collections::HashSet<String>, bool),
+    > = std::collections::HashMap::new();
+
+    for tool in tools {
+        let entry = combined
+            .entry(tool.name.clone())
+            .or_insert_with(|| (std::collections::HashSet::new(), tool.exclude_from_bom));
+        if let Some(setting) = &tool.setting {
+            entry.0.insert(setting.clone());
+        }
+        // Only exclude if ALL references exclude it
+        entry.1 = entry.1 && tool.exclude_from_bom;
+    }
+
+    combined
+        .into_iter()
+        .map(|(name, (settings, exclude_from_bom))| {
             let setting = if settings.is_empty() {
                 None
             } else {
                 Some(settings.into_iter().collect::<Vec<_>>().join(", "))
             };
-            ToolReference { name, setting }
+            ToolReference {
+                name,
+                setting,
+                exclude_from_bom,
+            }
         })
         .collect()
 }
@@ -758,7 +885,8 @@ function toggleAllTables(sectionId) {{
         document.getElementById('electronics-' + sectionId),
         document.getElementById('custom_parts-' + sectionId),
         document.getElementById('consumables-' + sectionId),
-        document.getElementById('tools-' + sectionId)
+        document.getElementById('tools-' + sectionId),
+        document.getElementById('assemblies-' + sectionId)
     ].filter(el => el !== null);
 
     detailsElements.forEach(details => {{
@@ -925,12 +1053,100 @@ fn generate_tools_table(
     table
 }
 
+fn generate_assemblies_table(
+    assemblies: &[AssemblyReference],
+    inventory: &Inventory,
+    section_id: &str,
+) -> String {
+    if assemblies.is_empty() {
+        return String::new();
+    }
+
+    let mut table = String::from(&format!("<details id=\"assemblies-{}\">\n<summary><strong>\u{1f9e9} Assemblies</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id));
+
+    for assembly_ref in assemblies {
+        if let Some(assembly) = inventory.assemblies.get(&assembly_ref.name) {
+            table.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+                assembly.name,
+                assembly.description.as_deref().unwrap_or("-"),
+                assembly_ref.quantity
+            ));
+        } else {
+            table.push_str(&format!(
+                "<tr><td>{}</td><td>Assembly not found in inventory</td><td>{}</td></tr>\n",
+                assembly_ref.name, assembly_ref.quantity
+            ));
+        }
+    }
+
+    table.push_str("</tbody>\n</table>\n<br>\n</details>\n\n");
+    table
+}
+
+fn combine_assemblies(assemblies: &[AssemblyReference]) -> Vec<AssemblyReference> {
+    let mut combined: std::collections::HashMap<String, (u32, bool)> =
+        std::collections::HashMap::new();
+
+    for assembly in assemblies {
+        combined
+            .entry(assembly.name.clone())
+            .and_modify(|(qty, excluded)| {
+                *qty += assembly.quantity;
+                // Only exclude if ALL references exclude it
+                *excluded = *excluded && assembly.exclude_from_bom;
+            })
+            .or_insert((assembly.quantity, assembly.exclude_from_bom));
+    }
+
+    combined
+        .into_iter()
+        .map(|(name, (quantity, exclude_from_bom))| AssemblyReference {
+            name,
+            quantity,
+            exclude_from_bom,
+        })
+        .collect()
+}
+
+fn accumulate_assemblies(
+    assemblies: &[AssemblyReference],
+    inventory: &Inventory,
+    all_assemblies: &mut HashMap<String, BomAssemblyItem>,
+) {
+    for assembly_ref in assemblies {
+        if assembly_ref.exclude_from_bom {
+            continue;
+        }
+
+        if let Some(inventory_assembly) = inventory.assemblies.get(&assembly_ref.name) {
+            let key = assembly_ref.name.clone();
+
+            all_assemblies
+                .entry(key)
+                .and_modify(|item| item.total_quantity += assembly_ref.quantity)
+                .or_insert_with(|| BomAssemblyItem {
+                    name: inventory_assembly.name.clone(),
+                    description: inventory_assembly
+                        .description
+                        .as_deref()
+                        .unwrap_or("-")
+                        .to_string(),
+                    total_quantity: assembly_ref.quantity,
+                });
+        }
+    }
+}
+
 fn accumulate_fasteners(
     parts: &[PartReference],
     inventory: &Inventory,
     all_fasteners: &mut HashMap<String, BomFastenerItem>,
 ) {
     for part_ref in parts {
+        if part_ref.exclude_from_bom {
+            continue;
+        }
         if let Some(inventory_part) = inventory.fasteners.get(&part_ref.name) {
             let key = part_ref.name.clone();
 
@@ -958,6 +1174,9 @@ fn accumulate_electronics(
     all_electronics: &mut HashMap<String, BomElectronicItem>,
 ) {
     for part_ref in parts {
+        if part_ref.exclude_from_bom {
+            continue;
+        }
         if let Some(inventory_part) = inventory.electronics.get(&part_ref.name) {
             let key = part_ref.name.clone();
 
@@ -985,6 +1204,9 @@ fn accumulate_custom_parts(
     all_custom_parts: &mut HashMap<String, BomCustomPartItem>,
 ) {
     for part_ref in parts {
+        if part_ref.exclude_from_bom {
+            continue;
+        }
         if let Some(inventory_part) = inventory.custom_parts.get(&part_ref.name) {
             let key = part_ref.name.clone();
 
@@ -1012,6 +1234,9 @@ fn accumulate_consumables(
     all_consumables: &mut HashMap<String, BomConsumableItem>,
 ) {
     for consumable_ref in consumables {
+        if consumable_ref.exclude_from_bom {
+            continue;
+        }
         if let Some(inventory_consumable) = inventory.consumables.get(&consumable_ref.name) {
             let key = consumable_ref.name.clone();
 
@@ -1038,6 +1263,9 @@ fn accumulate_tools(
     all_tools: &mut HashMap<String, BomToolItem>,
 ) {
     for tool_ref in tools {
+        if tool_ref.exclude_from_bom {
+            continue;
+        }
         if let Some(inventory_tool) = inventory.tools.get(&tool_ref.name) {
             let key = tool_ref.name.clone();
 
@@ -1084,6 +1312,7 @@ fn generate_bom_excel_file(
     custom_parts: &HashMap<String, BomCustomPartItem>,
     consumables: &HashMap<String, BomConsumableItem>,
     tools: &HashMap<String, BomToolItem>,
+    assemblies: &HashMap<String, BomAssemblyItem>,
     output_path: &str,
 ) -> Result<(), Error> {
     let mut workbook = Workbook::new();
@@ -1252,6 +1481,42 @@ fn generate_bom_excel_file(
                 .map_err(|e| Error::msg(format!("Failed to write data: {}", e)))?;
             worksheet
                 .write_string(row as u32, 1, &consumable.description)
+                .map_err(|e| Error::msg(format!("Failed to write data: {}", e)))?;
+        }
+    }
+
+    // Generate Assemblies sheet
+    if !assemblies.is_empty() {
+        let worksheet = workbook
+            .add_worksheet()
+            .set_name("Assemblies")
+            .map_err(|e| Error::msg(format!("Failed to set sheet name: {}", e)))?;
+
+        // Headers
+        worksheet
+            .write_string(0, 0, "Name")
+            .map_err(|e| Error::msg(format!("Failed to write header: {}", e)))?;
+        worksheet
+            .write_string(0, 1, "Description")
+            .map_err(|e| Error::msg(format!("Failed to write header: {}", e)))?;
+        worksheet
+            .write_string(0, 2, "Quantity")
+            .map_err(|e| Error::msg(format!("Failed to write header: {}", e)))?;
+
+        // Data
+        let mut sorted_assemblies: Vec<_> = assemblies.values().collect();
+        sorted_assemblies.sort_by(|a, b| a.name.cmp(&b.name));
+
+        for (row, assembly) in sorted_assemblies.iter().enumerate() {
+            let row = row + 1; // Skip header row
+            worksheet
+                .write_string(row as u32, 0, &assembly.name)
+                .map_err(|e| Error::msg(format!("Failed to write data: {}", e)))?;
+            worksheet
+                .write_string(row as u32, 1, &assembly.description)
+                .map_err(|e| Error::msg(format!("Failed to write data: {}", e)))?;
+            worksheet
+                .write_number(row as u32, 2, assembly.total_quantity as f64)
                 .map_err(|e| Error::msg(format!("Failed to write data: {}", e)))?;
         }
     }
