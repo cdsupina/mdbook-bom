@@ -340,47 +340,49 @@ impl Preprocessor for BomPreprocessor {
 
                         // Accumulate all items from all sections for BOM
                         for section_metadata in metadata.sections.values() {
-                            let hardware =
-                                section_metadata.hardware.as_deref().unwrap_or_default();
-                            let electronics =
-                                section_metadata.electronics.as_deref().unwrap_or_default();
-                            let custom_parts =
-                                section_metadata.custom_parts.as_deref().unwrap_or_default();
-                            let consumables =
-                                section_metadata.consumables.as_deref().unwrap_or_default();
-                            let tools = section_metadata.tools.as_deref().unwrap_or_default();
-                            let assemblies =
-                                section_metadata.assemblies.as_deref().unwrap_or_default();
-                            let subassemblies =
-                                section_metadata.subassemblies.as_deref().unwrap_or_default();
+                            if let Some(input) = &section_metadata.input {
+                                let hardware =
+                                    input.hardware.as_deref().unwrap_or_default();
+                                let electronics =
+                                    input.electronics.as_deref().unwrap_or_default();
+                                let custom_parts =
+                                    input.custom_parts.as_deref().unwrap_or_default();
+                                let consumables =
+                                    input.consumables.as_deref().unwrap_or_default();
+                                let tools = input.tools.as_deref().unwrap_or_default();
+                                let assemblies =
+                                    input.assemblies.as_deref().unwrap_or_default();
+                                let subassemblies =
+                                    input.subassemblies.as_deref().unwrap_or_default();
 
-                            accumulate_fasteners(hardware, &inventory, &mut all_fasteners);
-                            accumulate_electronics(
-                                electronics,
-                                &inventory,
-                                &mut all_electronics,
-                            );
-                            accumulate_custom_parts(
-                                custom_parts,
-                                &inventory,
-                                &mut all_custom_parts,
-                            );
-                            accumulate_consumables(
-                                consumables,
-                                &inventory,
-                                &mut all_consumables,
-                            );
-                            accumulate_tools(tools, &inventory, &mut all_tools);
-                            accumulate_assemblies(
-                                assemblies,
-                                &inventory,
-                                &mut all_assemblies,
-                            );
-                            accumulate_subassemblies(
-                                subassemblies,
-                                &inventory,
-                                &mut all_subassemblies,
-                            );
+                                accumulate_fasteners(hardware, &inventory, &mut all_fasteners);
+                                accumulate_electronics(
+                                    electronics,
+                                    &inventory,
+                                    &mut all_electronics,
+                                );
+                                accumulate_custom_parts(
+                                    custom_parts,
+                                    &inventory,
+                                    &mut all_custom_parts,
+                                );
+                                accumulate_consumables(
+                                    consumables,
+                                    &inventory,
+                                    &mut all_consumables,
+                                );
+                                accumulate_tools(tools, &inventory, &mut all_tools);
+                                accumulate_assemblies(
+                                    assemblies,
+                                    &inventory,
+                                    &mut all_assemblies,
+                                );
+                                accumulate_subassemblies(
+                                    subassemblies,
+                                    &inventory,
+                                    &mut all_subassemblies,
+                                );
+                            }
                         }
                     }
                 }
@@ -413,6 +415,12 @@ struct ChapterMetadata {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct SectionMetadata {
+    input: Option<InputMetadata>,
+    output: Option<OutputMetadata>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct InputMetadata {
     hardware: Option<Vec<PartReference>>,
     electronics: Option<Vec<PartReference>>,
     custom_parts: Option<Vec<PartReference>>,
@@ -420,7 +428,6 @@ struct SectionMetadata {
     tools: Option<Vec<ToolReference>>,
     assemblies: Option<Vec<AssemblyReference>>,
     subassemblies: Option<Vec<SubassemblyReference>>,
-    output: Option<OutputMetadata>,
 }
 
 // Simplified front matter structures
@@ -695,14 +702,23 @@ fn insert_section_tables(
         for (step_key, header_line_idx) in &step_headers {
             if line_idx == *header_line_idx {
                 if let Some(section_metadata) = sections.get(step_key) {
-                    let hardware = section_metadata.hardware.as_deref().unwrap_or_default();
-                    let electronics = section_metadata.electronics.as_deref().unwrap_or_default();
-                    let custom_parts = section_metadata.custom_parts.as_deref().unwrap_or_default();
-                    let consumables = section_metadata.consumables.as_deref().unwrap_or_default();
-                    let tools = section_metadata.tools.as_deref().unwrap_or_default();
-                    let assemblies = section_metadata.assemblies.as_deref().unwrap_or_default();
-                    let subassemblies =
-                        section_metadata.subassemblies.as_deref().unwrap_or_default();
+                    let empty_input = InputMetadata {
+                        hardware: None,
+                        electronics: None,
+                        custom_parts: None,
+                        consumables: None,
+                        tools: None,
+                        assemblies: None,
+                        subassemblies: None,
+                    };
+                    let input = section_metadata.input.as_ref().unwrap_or(&empty_input);
+                    let hardware = input.hardware.as_deref().unwrap_or_default();
+                    let electronics = input.electronics.as_deref().unwrap_or_default();
+                    let custom_parts = input.custom_parts.as_deref().unwrap_or_default();
+                    let consumables = input.consumables.as_deref().unwrap_or_default();
+                    let tools = input.tools.as_deref().unwrap_or_default();
+                    let assemblies = input.assemblies.as_deref().unwrap_or_default();
+                    let subassemblies = input.subassemblies.as_deref().unwrap_or_default();
 
                     let hardware_table = generate_fasteners_table(hardware, inventory, step_key);
                     let electronics_table =
@@ -740,32 +756,32 @@ fn insert_section_tables(
                     }
 
                     if !hardware_table.is_empty() {
-                        result.push("".to_string()); // Empty line
+                        result.push("".to_string());
                         result.extend(hardware_table.lines().map(|s| s.to_string()));
                     }
                     if !electronics_table.is_empty() {
-                        result.push("".to_string()); // Empty line
+                        result.push("".to_string());
                         result.extend(electronics_table.lines().map(|s| s.to_string()));
                     }
                     if !custom_parts_table.is_empty() {
-                        result.push("".to_string()); // Empty line
+                        result.push("".to_string());
                         result.extend(custom_parts_table.lines().map(|s| s.to_string()));
                     }
-                    if !consumables_table.is_empty() {
-                        result.push("".to_string()); // Empty line
-                        result.extend(consumables_table.lines().map(|s| s.to_string()));
-                    }
-                    if !tools_table.is_empty() {
-                        result.push("".to_string()); // Empty line
-                        result.extend(tools_table.lines().map(|s| s.to_string()));
+                    if !subassemblies_table.is_empty() {
+                        result.push("".to_string());
+                        result.extend(subassemblies_table.lines().map(|s| s.to_string()));
                     }
                     if !assemblies_table.is_empty() {
-                        result.push("".to_string()); // Empty line
+                        result.push("".to_string());
                         result.extend(assemblies_table.lines().map(|s| s.to_string()));
                     }
-                    if !subassemblies_table.is_empty() {
-                        result.push("".to_string()); // Empty line
-                        result.extend(subassemblies_table.lines().map(|s| s.to_string()));
+                    if !tools_table.is_empty() {
+                        result.push("".to_string());
+                        result.extend(tools_table.lines().map(|s| s.to_string()));
+                    }
+                    if !consumables_table.is_empty() {
+                        result.push("".to_string());
+                        result.extend(consumables_table.lines().map(|s| s.to_string()));
                     }
 
                     if has_input_tables {
@@ -807,29 +823,28 @@ fn generate_overview_tables(
     let mut all_outputs = Vec::new();
 
     for section_metadata in sections.values() {
-        // Collect hardware
-        if let Some(hardware) = &section_metadata.hardware {
-            all_hardware.extend(hardware.clone());
-        }
-
-        // Collect other categories
-        if let Some(electronics) = &section_metadata.electronics {
-            all_electronics.extend(electronics.clone());
-        }
-        if let Some(custom_parts) = &section_metadata.custom_parts {
-            all_custom_parts.extend(custom_parts.clone());
-        }
-        if let Some(consumables) = &section_metadata.consumables {
-            all_consumables.extend(consumables.clone());
-        }
-        if let Some(tools) = &section_metadata.tools {
-            all_tools.extend(tools.clone());
-        }
-        if let Some(assemblies) = &section_metadata.assemblies {
-            all_assemblies.extend(assemblies.clone());
-        }
-        if let Some(subassemblies) = &section_metadata.subassemblies {
-            all_subassemblies.extend(subassemblies.clone());
+        if let Some(input) = &section_metadata.input {
+            if let Some(hardware) = &input.hardware {
+                all_hardware.extend(hardware.clone());
+            }
+            if let Some(electronics) = &input.electronics {
+                all_electronics.extend(electronics.clone());
+            }
+            if let Some(custom_parts) = &input.custom_parts {
+                all_custom_parts.extend(custom_parts.clone());
+            }
+            if let Some(consumables) = &input.consumables {
+                all_consumables.extend(consumables.clone());
+            }
+            if let Some(tools) = &input.tools {
+                all_tools.extend(tools.clone());
+            }
+            if let Some(assemblies) = &input.assemblies {
+                all_assemblies.extend(assemblies.clone());
+            }
+            if let Some(subassemblies) = &input.subassemblies {
+                all_subassemblies.extend(subassemblies.clone());
+            }
         }
         if let Some(output) = &section_metadata.output {
             all_outputs.push(output.clone());
@@ -923,20 +938,20 @@ fn generate_overview_tables(
             overview.push_str(&custom_parts_table);
             overview.push('\n');
         }
-        if !consumables_table.is_empty() {
-            overview.push_str(&consumables_table);
-            overview.push('\n');
-        }
-        if !tools_table.is_empty() {
-            overview.push_str(&tools_table);
+        if !subassemblies_table.is_empty() {
+            overview.push_str(&subassemblies_table);
             overview.push('\n');
         }
         if !assemblies_table.is_empty() {
             overview.push_str(&assemblies_table);
             overview.push('\n');
         }
-        if !subassemblies_table.is_empty() {
-            overview.push_str(&subassemblies_table);
+        if !tools_table.is_empty() {
+            overview.push_str(&tools_table);
+            overview.push('\n');
+        }
+        if !consumables_table.is_empty() {
+            overview.push_str(&consumables_table);
             overview.push('\n');
         }
         if !output_table.is_empty() {
@@ -1098,9 +1113,12 @@ fn generate_fasteners_table(
         return String::new();
     }
 
+    let mut sorted_parts = parts.to_vec();
+    sorted_parts.sort_by(|a, b| a.name.cmp(&b.name));
+
     let mut table = String::from(&format!("<details id=\"hardware-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong>🔩 Hardware</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id));
 
-    for part_ref in parts {
+    for part_ref in &sorted_parts {
         if let Some(part) = inventory.fasteners.get(&part_ref.name) {
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
@@ -1129,9 +1147,12 @@ fn generate_electronics_table(
         return String::new();
     }
 
+    let mut sorted_parts = parts.to_vec();
+    sorted_parts.sort_by(|a, b| a.name.cmp(&b.name));
+
     let mut table = String::from(&format!("<details id=\"electronics-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong>🔌 Electronics</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id));
 
-    for part_ref in parts {
+    for part_ref in &sorted_parts {
         if let Some(part) = inventory.electronics.get(&part_ref.name) {
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
@@ -1160,9 +1181,12 @@ fn generate_custom_parts_table(
         return String::new();
     }
 
+    let mut sorted_parts = parts.to_vec();
+    sorted_parts.sort_by(|a, b| a.name.cmp(&b.name));
+
     let mut table = String::from(&format!("<details id=\"custom_parts-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong>⚙️ Custom Parts</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id));
 
-    for part_ref in parts {
+    for part_ref in &sorted_parts {
         if let Some(part) = inventory.custom_parts.get(&part_ref.name) {
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
@@ -1191,9 +1215,12 @@ fn generate_consumables_table(
         return String::new();
     }
 
+    let mut sorted_consumables = consumables.to_vec();
+    sorted_consumables.sort_by(|a, b| a.name.cmp(&b.name));
+
     let mut table = String::from(&format!("<details id=\"consumables-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong>🧪 Consumables</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th></tr>\n</thead>\n<tbody>\n", section_id));
 
-    for consumable_ref in consumables {
+    for consumable_ref in &sorted_consumables {
         if let Some(consumable) = inventory.consumables.get(&consumable_ref.name) {
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td></tr>\n",
@@ -1221,9 +1248,12 @@ fn generate_tools_table(
         return String::new();
     }
 
+    let mut sorted_tools = tools.to_vec();
+    sorted_tools.sort_by(|a, b| a.name.cmp(&b.name));
+
     let mut table = String::from(&format!("<details id=\"tools-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong>🔧 Tools</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Setting</th><th>Brand</th></tr>\n</thead>\n<tbody>\n", section_id));
 
-    for tool_ref in tools {
+    for tool_ref in &sorted_tools {
         if let Some(tool) = inventory.tools.get(&tool_ref.name) {
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
@@ -1253,9 +1283,12 @@ fn generate_assemblies_table(
         return String::new();
     }
 
+    let mut sorted_assemblies = assemblies.to_vec();
+    sorted_assemblies.sort_by(|a, b| a.name.cmp(&b.name));
+
     let mut table = String::from(&format!("<details id=\"assemblies-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong>\u{1f4e6} Assemblies</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id));
 
-    for assembly_ref in assemblies {
+    for assembly_ref in &sorted_assemblies {
         if let Some(assembly) = inventory.assemblies.get(&assembly_ref.name) {
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
@@ -1310,9 +1343,12 @@ fn generate_subassemblies_table(
         return String::new();
     }
 
+    let mut sorted_subassemblies = subassemblies.to_vec();
+    sorted_subassemblies.sort_by(|a, b| a.name.cmp(&b.name));
+
     let mut table = String::from(&format!("<details id=\"subassemblies-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong>\u{1f9e9} Subassemblies</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id));
 
-    for subassembly_ref in subassemblies {
+    for subassembly_ref in &sorted_subassemblies {
         if let Some(subassembly) = inventory.subassemblies.get(&subassembly_ref.name) {
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
@@ -1353,10 +1389,12 @@ fn generate_output_table(
         None => return String::new(),
     };
 
-    let assemblies = output.assemblies.as_deref().unwrap_or_default();
-    let subassemblies = output.subassemblies.as_deref().unwrap_or_default();
+    let mut sorted_assemblies = output.assemblies.clone().unwrap_or_default();
+    sorted_assemblies.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut sorted_subassemblies = output.subassemblies.clone().unwrap_or_default();
+    sorted_subassemblies.sort_by(|a, b| a.name.cmp(&b.name));
 
-    if assemblies.is_empty() && subassemblies.is_empty() {
+    if sorted_assemblies.is_empty() && sorted_subassemblies.is_empty() {
         return String::new();
     }
 
@@ -1367,10 +1405,10 @@ fn generate_output_table(
     table.push('\n');
 
     // Output assemblies table with colored left border
-    if !assemblies.is_empty() {
+    if !sorted_assemblies.is_empty() {
         table.push_str(&format!("<details id=\"output_assemblies-{}\" style=\"border-left: 3px solid #4caf50; padding-left: 12px;\">\n<summary><strong>\u{1f4e6} Assemblies</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id));
 
-        for assembly_ref in assemblies {
+        for assembly_ref in &sorted_assemblies {
             let description = inventory
                 .assemblies
                 .get(&assembly_ref.name)
@@ -1386,10 +1424,10 @@ fn generate_output_table(
     }
 
     // Output subassemblies table with colored left border
-    if !subassemblies.is_empty() {
+    if !sorted_subassemblies.is_empty() {
         table.push_str(&format!("<details id=\"output_subassemblies-{}\" style=\"border-left: 3px solid #4caf50; padding-left: 12px;\">\n<summary><strong>\u{1f9e9} Subassemblies</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id));
 
-        for subassembly_ref in subassemblies {
+        for subassembly_ref in &sorted_subassemblies {
             let description = inventory
                 .subassemblies
                 .get(&subassembly_ref.name)

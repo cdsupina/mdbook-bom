@@ -108,34 +108,35 @@ book.toml config → load Excel inventory → process chapters →
 ---
 sections:
   step_1:
-    hardware:
-      - name: "PART-001"
-        quantity: 2
-      - name: "SPECIAL-BOLT"
-        quantity: 1
-        exclude_from_bom: true   # Optional, defaults to false
-    electronics:
-      - name: "ELEC-001"
-        quantity: 1
-    custom_parts:
-      - name: "CUSTOM-001"
-        quantity: 1
-    consumables:
-      - name: "CONSUMABLE-001"
-    tools:
-      - name: "TOOL-001"
-        setting: "5 Nm"  # Optional
-    assemblies:
-      - name: "Spool Module"
-        quantity: 1
-        exclude_from_bom: true   # Built in the book, not ordered
-      - name: "Wire Harness"
-        quantity: 2               # exclude_from_bom defaults to false → included in BOM
-    subassemblies:
-      - name: "Wire Harness Sub"
-        quantity: 2
-        exclude_from_bom: true          # Optional, defaults to false
-        exclude_from_overview: true      # Optional, defaults to false
+    input:
+      hardware:
+        - name: "PART-001"
+          quantity: 2
+        - name: "SPECIAL-BOLT"
+          quantity: 1
+          exclude_from_bom: true   # Optional, defaults to false
+      electronics:
+        - name: "ELEC-001"
+          quantity: 1
+      custom_parts:
+        - name: "CUSTOM-001"
+          quantity: 1
+      consumables:
+        - name: "CONSUMABLE-001"
+      tools:
+        - name: "TOOL-001"
+          setting: "5 Nm"  # Optional
+      assemblies:
+        - name: "Spool Module"
+          quantity: 1
+          exclude_from_bom: true   # Built in the book, not ordered
+        - name: "Wire Harness"
+          quantity: 2               # exclude_from_bom defaults to false → included in BOM
+      subassemblies:
+        - name: "Wire Harness Sub"
+          quantity: 2
+          exclude_from_bom: true          # Optional, defaults to false
+          exclude_from_overview: true      # Optional, defaults to false
     output:
       assemblies:
         - name: "Main Frame Assembly"
