@@ -53,6 +53,7 @@ The preprocessor requires an Excel inventory file with the following sheets:
 - Consumables
 - Tools
 - Assemblies
+- Subassemblies
 
 The `inventory_file` path supports home directory expansion with `~/`.
 
@@ -68,7 +69,7 @@ The `inventory_file` path supports home directory expansion with `~/`.
 
 2. **Inventory Loading**: Handles reading inventory data from Excel
    - `Inventory::load()` - Loads Excel file with home directory expansion
-   - `load_*_from_excel()` methods - Read individual sheets (Hardware, Electronics, Custom Parts, Consumables, Tools, Assemblies)
+   - `load_*_from_excel()` methods - Read individual sheets (Hardware, Electronics, Custom Parts, Consumables, Tools, Assemblies, Subassemblies)
    - Stores data in HashMaps keyed by part number/name
 
 3. **Front Matter Processing**:
@@ -79,19 +80,19 @@ The `inventory_file` path supports home directory expansion with `~/`.
 4. **Table Generation**:
    - `insert_section_tables()` - Inserts collapsible tables after step headers
    - `generate_overview_tables()` - Creates chapter overview with all components
-   - Generates separate tables for: Hardware, Electronics, Custom Parts, Consumables, Tools, Assemblies
+   - Generates separate tables for: Hardware, Electronics, Custom Parts, Consumables, Tools, Assemblies, Subassemblies, Output
    - Each table has collapsible `<details>` elements with unique IDs for JavaScript control
 
 5. **BOM Accumulation**:
    - `accumulate_*()` functions - Aggregate components across all chapters
-   - Combines quantities for parts and assemblies
+   - Combines quantities for parts, assemblies, and subassemblies
    - Deduplicates consumables and tools
    - Merges tool settings from different steps
    - Respects `exclude_from_bom` flag — items with `exclude_from_bom: true` appear in chapter tables but are skipped during BOM accumulation
 
 6. **Output Generation**:
    - `generate_bom_excel_file()` - Creates multi-sheet Excel workbook
-   - Separate sheets for each component category (Hardware, Electronics, Custom Parts, Tools, Consumables, Assemblies)
+   - Separate sheets for each component category (Hardware, Electronics, Custom Parts, Tools, Consumables, Assemblies, Subassemblies)
    - Sorted by description/name
 
 ### Data Flow
@@ -130,17 +131,43 @@ sections:
         exclude_from_bom: true   # Built in the book, not ordered
       - name: "Wire Harness"
         quantity: 2               # exclude_from_bom defaults to false → included in BOM
+    subassemblies:
+      - name: "Wire Harness Sub"
+        quantity: 2
+        exclude_from_bom: true          # Optional, defaults to false
+        exclude_from_overview: true      # Optional, defaults to false
+    output:
+      assemblies:
+        - name: "Main Frame Assembly"
+          quantity: 1
+      subassemblies:
+        - name: "Wire Harness Sub"
+          quantity: 2
+          exclude_from_overview: true    # Optional, defaults to false
 ---
 ```
 
 ### `exclude_from_bom` Field
 
-All component reference types (`PartReference`, `ConsumableReference`, `ToolReference`, `AssemblyReference`) support an optional `exclude_from_bom: bool` field (defaults to `false`). When set to `true`:
+All component reference types (`PartReference`, `ConsumableReference`, `ToolReference`, `AssemblyReference`, `SubassemblyReference`) support an optional `exclude_from_bom: bool` field (defaults to `false`). When set to `true`:
 - The item still appears in chapter-level and overview tables
 - The item is **skipped** during BOM accumulation (not included in the Excel output)
 - Useful for sub-assemblies built within the book or items that should not be double-counted
 
 In overview table deduplication, `exclude_from_bom` uses logical AND: only excluded if ALL references across sections exclude it.
+
+### `exclude_from_overview` Field
+
+All component reference types and `OutputReference` support an optional `exclude_from_overview: bool` field (defaults to `false`). When set to `true`:
+- The item still appears in its **step-level** table
+- The item is **filtered out** of the chapter overview tables at the top of the page
+- Useful for intermediate assemblies/subassemblies that are built and consumed within the same chapter
+
+In overview table deduplication, `exclude_from_overview` uses logical AND: only excluded if ALL references across sections exclude it.
+
+### Output Section
+
+Each step can have an optional `output` section listing assemblies and/or subassemblies produced by that step. Output items are **purely informational** — they appear in chapter-level and overview tables but are never accumulated into the BOM Excel output. Output references also support `exclude_from_overview`. Descriptions are looked up from the Assemblies and Subassemblies inventory sheets respectively.
 
 ### Step Header Matching
 
@@ -156,6 +183,7 @@ Step headers are matched using regex:
 - `InventoryConsumable`: Has `Name` and optional `Description`
 - `InventoryTool`: Has `Name` and optional `Brand`
 - `InventoryAssembly`: Has `Name` and optional `Description`
+- `InventorySubassembly`: Has `Name` and optional `Description`
 - All use serde `#[serde(rename = "Name")]` to match Excel column headers
 
 ### BOM Data Structures
@@ -164,6 +192,7 @@ Step headers are matched using regex:
 - `BomConsumableItem`: No quantity (treated as binary - needed or not)
 - `BomToolItem`: Aggregates multiple `settings` from different chapters
 - `BomAssemblyItem`: Tracks `total_quantity` across all chapters
+- `BomSubassemblyItem`: Tracks `total_quantity` across all chapters
 
 ## Key Implementation Details
 
