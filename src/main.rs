@@ -1,4 +1,5 @@
 use calamine::{open_workbook, RangeDeserializerBuilder, Reader, Xlsx};
+use log::warn;
 use clap::{Arg, ArgMatches, Command};
 use mdbook::book::{Book, BookItem};
 use mdbook::errors::Error;
@@ -61,6 +62,7 @@ struct Inventory {
     tools: HashMap<String, InventoryTool>,
     assemblies: HashMap<String, InventoryAssembly>,
     subassemblies: HashMap<String, InventorySubassembly>,
+    units: HashMap<String, InventoryUnit>,
 }
 
 impl Inventory {
@@ -94,6 +96,7 @@ impl Inventory {
         let tools = Self::load_tools_from_excel(&expanded_path)?;
         let assemblies = Self::load_assemblies_from_excel(&expanded_path)?;
         let subassemblies = Self::load_subassemblies_from_excel(&expanded_path)?;
+        let units = Self::load_units_from_excel(&expanded_path)?;
 
         Ok(Inventory {
             fasteners,
@@ -103,6 +106,7 @@ impl Inventory {
             tools,
             assemblies,
             subassemblies,
+            units,
         })
     }
 
@@ -298,6 +302,35 @@ impl Inventory {
 
         Ok(subassemblies)
     }
+
+    fn load_units_from_excel(
+        excel_path: &str,
+    ) -> Result<HashMap<String, InventoryUnit>, Error> {
+        let mut workbook: Xlsx<_> = open_workbook(excel_path)
+            .map_err(|e| Error::msg(format!("Failed to open Excel file: {}", e)))?;
+
+        let range = workbook
+            .worksheet_range("Units")
+            .map_err(|e| Error::msg(format!("Failed to read 'Units' sheet: {}", e)))?;
+
+        let mut units = HashMap::new();
+        let iter = RangeDeserializerBuilder::new()
+            .from_range(&range)
+            .map_err(|e| {
+                Error::msg(format!(
+                    "Failed to create deserializer for units: {}",
+                    e
+                ))
+            })?;
+
+        for result in iter {
+            let unit: InventoryUnit =
+                result.map_err(|e| Error::msg(format!("Failed to parse unit row: {}", e)))?;
+            units.insert(unit.name.clone(), unit);
+        }
+
+        Ok(units)
+    }
 }
 
 pub struct BomPreprocessor;
@@ -325,6 +358,7 @@ impl Preprocessor for BomPreprocessor {
         let mut all_tools: HashMap<String, BomToolItem> = HashMap::new();
         let mut all_assemblies: HashMap<String, BomAssemblyItem> = HashMap::new();
         let mut all_subassemblies: HashMap<String, BomSubassemblyItem> = HashMap::new();
+        let mut all_units: HashMap<String, BomUnitItem> = HashMap::new();
 
         book.for_each_mut(|item: &mut BookItem| {
             if let BookItem::Chapter(ch) = item {
@@ -337,6 +371,11 @@ impl Preprocessor for BomPreprocessor {
                         // Insert tables after step headers
                         ch.content =
                             insert_section_tables(&content_without_fm, &metadata.sections, &inventory);
+
+                        // Only accumulate into BOM if chapter is not excluded
+                        if metadata.exclude_from_bom {
+                            return;
+                        }
 
                         // Accumulate all items from all sections for BOM
                         for section_metadata in metadata.sections.values() {
@@ -354,6 +393,8 @@ impl Preprocessor for BomPreprocessor {
                                     input.assemblies.as_deref().unwrap_or_default();
                                 let subassemblies =
                                     input.subassemblies.as_deref().unwrap_or_default();
+                                let units =
+                                    input.units.as_deref().unwrap_or_default();
 
                                 accumulate_fasteners(hardware, &inventory, &mut all_fasteners);
                                 accumulate_electronics(
@@ -382,6 +423,11 @@ impl Preprocessor for BomPreprocessor {
                                     &inventory,
                                     &mut all_subassemblies,
                                 );
+                                accumulate_units(
+                                    units,
+                                    &inventory,
+                                    &mut all_units,
+                                );
                             }
                         }
                     }
@@ -401,6 +447,7 @@ impl Preprocessor for BomPreprocessor {
             &all_tools,
             &all_assemblies,
             &all_subassemblies,
+            &all_units,
             &output_path,
         )?;
 
@@ -410,6 +457,8 @@ impl Preprocessor for BomPreprocessor {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct ChapterMetadata {
+    #[serde(default)]
+    exclude_from_bom: bool,
     sections: std::collections::HashMap<String, SectionMetadata>,
 }
 
@@ -428,6 +477,7 @@ struct InputMetadata {
     tools: Option<Vec<ToolReference>>,
     assemblies: Option<Vec<AssemblyReference>>,
     subassemblies: Option<Vec<SubassemblyReference>>,
+    units: Option<Vec<UnitReference>>,
 }
 
 // Simplified front matter structures
@@ -481,6 +531,16 @@ struct SubassemblyReference {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+struct UnitReference {
+    name: String,
+    quantity: u32,
+    #[serde(default)]
+    exclude_from_bom: bool,
+    #[serde(default)]
+    exclude_from_overview: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 struct OutputReference {
     name: String,
     quantity: u32,
@@ -490,8 +550,10 @@ struct OutputReference {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct OutputMetadata {
+    custom_parts: Option<Vec<OutputReference>>,
     assemblies: Option<Vec<OutputReference>>,
     subassemblies: Option<Vec<OutputReference>>,
+    units: Option<Vec<OutputReference>>,
 }
 
 // Inventory structures
@@ -545,6 +607,14 @@ struct InventoryAssembly {
 
 #[derive(Debug, Deserialize, Clone)]
 struct InventorySubassembly {
+    #[serde(rename = "Name")]
+    name: String,
+    #[serde(rename = "Description", default)]
+    description: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct InventoryUnit {
     #[serde(rename = "Name")]
     name: String,
     #[serde(rename = "Description", default)]
@@ -610,6 +680,13 @@ struct BomAssemblyItem {
 
 #[derive(Debug, Clone)]
 struct BomSubassemblyItem {
+    name: String,
+    description: String,
+    total_quantity: u32,
+}
+
+#[derive(Debug, Clone)]
+struct BomUnitItem {
     name: String,
     description: String,
     total_quantity: u32,
@@ -710,6 +787,7 @@ fn insert_section_tables(
                         tools: None,
                         assemblies: None,
                         subassemblies: None,
+                        units: None,
                     };
                     let input = section_metadata.input.as_ref().unwrap_or(&empty_input);
                     let hardware = input.hardware.as_deref().unwrap_or_default();
@@ -719,6 +797,7 @@ fn insert_section_tables(
                     let tools = input.tools.as_deref().unwrap_or_default();
                     let assemblies = input.assemblies.as_deref().unwrap_or_default();
                     let subassemblies = input.subassemblies.as_deref().unwrap_or_default();
+                    let units = input.units.as_deref().unwrap_or_default();
 
                     let hardware_table = generate_fasteners_table(hardware, inventory, step_key);
                     let electronics_table =
@@ -732,6 +811,8 @@ fn insert_section_tables(
                         generate_assemblies_table(assemblies, inventory, step_key);
                     let subassemblies_table =
                         generate_subassemblies_table(subassemblies, inventory, step_key);
+                    let units_table =
+                        generate_units_table(units, inventory, step_key);
                     let output_table = generate_output_table(
                         section_metadata.output.as_ref(),
                         inventory,
@@ -744,7 +825,8 @@ fn insert_section_tables(
                         || !consumables_table.is_empty()
                         || !tools_table.is_empty()
                         || !assemblies_table.is_empty()
-                        || !subassemblies_table.is_empty();
+                        || !subassemblies_table.is_empty()
+                        || !units_table.is_empty();
 
                     if has_input_tables {
                         // Add Show All button before tables
@@ -774,6 +856,10 @@ fn insert_section_tables(
                     if !assemblies_table.is_empty() {
                         result.push("".to_string());
                         result.extend(assemblies_table.lines().map(|s| s.to_string()));
+                    }
+                    if !units_table.is_empty() {
+                        result.push("".to_string());
+                        result.extend(units_table.lines().map(|s| s.to_string()));
                     }
                     if !tools_table.is_empty() {
                         result.push("".to_string());
@@ -820,6 +906,7 @@ fn generate_overview_tables(
     let mut all_tools = Vec::new();
     let mut all_assemblies = Vec::new();
     let mut all_subassemblies = Vec::new();
+    let mut all_units = Vec::new();
     let mut all_outputs = Vec::new();
 
     for section_metadata in sections.values() {
@@ -844,6 +931,9 @@ fn generate_overview_tables(
             }
             if let Some(subassemblies) = &input.subassemblies {
                 all_subassemblies.extend(subassemblies.clone());
+            }
+            if let Some(units) = &input.units {
+                all_units.extend(units.clone());
             }
         }
         if let Some(output) = &section_metadata.output {
@@ -880,13 +970,23 @@ fn generate_overview_tables(
         .into_iter()
         .filter(|s| !s.exclude_from_overview)
         .collect();
+    let combined_units: Vec<_> = combine_units(&all_units)
+        .into_iter()
+        .filter(|u| !u.exclude_from_overview)
+        .collect();
     let combined_output = combine_output_metadata(&all_outputs);
     let filtered_output = OutputMetadata {
+        custom_parts: combined_output.custom_parts.map(|v| {
+            v.into_iter().filter(|p| !p.exclude_from_overview).collect()
+        }),
         assemblies: combined_output.assemblies.map(|v| {
             v.into_iter().filter(|a| !a.exclude_from_overview).collect()
         }),
         subassemblies: combined_output.subassemblies.map(|v| {
             v.into_iter().filter(|s| !s.exclude_from_overview).collect()
+        }),
+        units: combined_output.units.map(|v| {
+            v.into_iter().filter(|u| !u.exclude_from_overview).collect()
         }),
     };
 
@@ -905,6 +1005,7 @@ fn generate_overview_tables(
         generate_assemblies_table(&combined_assemblies, inventory, "overview");
     let subassemblies_table =
         generate_subassemblies_table(&combined_subassemblies, inventory, "overview");
+    let units_table = generate_units_table(&combined_units, inventory, "overview");
     let output_table = generate_output_table(Some(&filtered_output), inventory, "overview");
 
     let has_input_tables = !hardware_table.is_empty()
@@ -913,7 +1014,8 @@ fn generate_overview_tables(
         || !consumables_table.is_empty()
         || !tools_table.is_empty()
         || !assemblies_table.is_empty()
-        || !subassemblies_table.is_empty();
+        || !subassemblies_table.is_empty()
+        || !units_table.is_empty();
 
     let has_tables = has_input_tables || !output_table.is_empty();
 
@@ -944,6 +1046,10 @@ fn generate_overview_tables(
         }
         if !assemblies_table.is_empty() {
             overview.push_str(&assemblies_table);
+            overview.push('\n');
+        }
+        if !units_table.is_empty() {
+            overview.push_str(&units_table);
             overview.push('\n');
         }
         if !tools_table.is_empty() {
@@ -1091,8 +1197,11 @@ function toggleAllTables(sectionId) {{
         document.getElementById('tools-' + sectionId),
         document.getElementById('assemblies-' + sectionId),
         document.getElementById('subassemblies-' + sectionId),
+        document.getElementById('units-' + sectionId),
+        document.getElementById('output_custom_parts-' + sectionId),
         document.getElementById('output_assemblies-' + sectionId),
-        document.getElementById('output_subassemblies-' + sectionId)
+        document.getElementById('output_subassemblies-' + sectionId),
+        document.getElementById('output_units-' + sectionId)
     ].filter(el => el !== null);
 
     detailsElements.forEach(details => {{
@@ -1116,19 +1225,23 @@ fn generate_fasteners_table(
     let mut sorted_parts = parts.to_vec();
     sorted_parts.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let mut table = String::from(&format!("<details id=\"hardware-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong>🔩 Hardware</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id));
+    let has_missing = sorted_parts.iter().any(|p| !inventory.fasteners.contains_key(&p.name));
+    let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+
+    let mut table = String::from(&format!("<details id=\"hardware-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong{}>🔩 Hardware</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
     for part_ref in &sorted_parts {
         if let Some(part) = inventory.fasteners.get(&part_ref.name) {
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
                 part.part_number,
-                part.description.as_deref().unwrap_or("-"),
+                part.description.as_deref().unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
                 part_ref.quantity
             ));
         } else {
+            warn!("Hardware '{}' not found in inventory", part_ref.name);
             table.push_str(&format!(
-                "<tr><td>{}</td><td>Hardware not found in inventory</td><td>{}</td></tr>\n",
+                "<tr><td>{}</td><td><span style=\"color: #e53935;\">Hardware not found in inventory</span></td><td>{}</td></tr>\n",
                 part_ref.name, part_ref.quantity
             ));
         }
@@ -1150,19 +1263,23 @@ fn generate_electronics_table(
     let mut sorted_parts = parts.to_vec();
     sorted_parts.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let mut table = String::from(&format!("<details id=\"electronics-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong>🔌 Electronics</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id));
+    let has_missing = sorted_parts.iter().any(|p| !inventory.electronics.contains_key(&p.name));
+    let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+
+    let mut table = String::from(&format!("<details id=\"electronics-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong{}>🔌 Electronics</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
     for part_ref in &sorted_parts {
         if let Some(part) = inventory.electronics.get(&part_ref.name) {
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
                 part.part_number,
-                part.description.as_deref().unwrap_or("-"),
+                part.description.as_deref().unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
                 part_ref.quantity
             ));
         } else {
+            warn!("Electronic component '{}' not found in inventory", part_ref.name);
             table.push_str(&format!(
-                "<tr><td>{}</td><td>Electronic component not found in inventory</td><td>{}</td></tr>\n",
+                "<tr><td>{}</td><td><span style=\"color: #e53935;\">Electronic component not found in inventory</span></td><td>{}</td></tr>\n",
                 part_ref.name, part_ref.quantity
             ));
         }
@@ -1184,19 +1301,23 @@ fn generate_custom_parts_table(
     let mut sorted_parts = parts.to_vec();
     sorted_parts.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let mut table = String::from(&format!("<details id=\"custom_parts-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong>⚙️ Custom Parts</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id));
+    let has_missing = sorted_parts.iter().any(|p| !inventory.custom_parts.contains_key(&p.name));
+    let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+
+    let mut table = String::from(&format!("<details id=\"custom_parts-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong{}>⚙️ Custom Parts</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
     for part_ref in &sorted_parts {
         if let Some(part) = inventory.custom_parts.get(&part_ref.name) {
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
                 part.part_number,
-                part.description.as_deref().unwrap_or("-"),
+                part.description.as_deref().unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
                 part_ref.quantity
             ));
         } else {
+            warn!("Custom part '{}' not found in inventory", part_ref.name);
             table.push_str(&format!(
-                "<tr><td>{}</td><td>Custom part not found in inventory</td><td>{}</td></tr>\n",
+                "<tr><td>{}</td><td><span style=\"color: #e53935;\">Custom part not found in inventory</span></td><td>{}</td></tr>\n",
                 part_ref.name, part_ref.quantity
             ));
         }
@@ -1218,18 +1339,22 @@ fn generate_consumables_table(
     let mut sorted_consumables = consumables.to_vec();
     sorted_consumables.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let mut table = String::from(&format!("<details id=\"consumables-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong>🧪 Consumables</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th></tr>\n</thead>\n<tbody>\n", section_id));
+    let has_missing = sorted_consumables.iter().any(|c| !inventory.consumables.contains_key(&c.name));
+    let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+
+    let mut table = String::from(&format!("<details id=\"consumables-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong{}>🧪 Consumables</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
     for consumable_ref in &sorted_consumables {
         if let Some(consumable) = inventory.consumables.get(&consumable_ref.name) {
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td></tr>\n",
                 consumable.part_number,
-                consumable.description.as_deref().unwrap_or("-")
+                consumable.description.as_deref().unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>")
             ));
         } else {
+            warn!("Consumable '{}' not found in inventory", consumable_ref.name);
             table.push_str(&format!(
-                "<tr><td>{}</td><td>Consumable not found in inventory</td></tr>\n",
+                "<tr><td>{}</td><td><span style=\"color: #e53935;\">Consumable not found in inventory</span></td></tr>\n",
                 consumable_ref.name
             ));
         }
@@ -1251,7 +1376,10 @@ fn generate_tools_table(
     let mut sorted_tools = tools.to_vec();
     sorted_tools.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let mut table = String::from(&format!("<details id=\"tools-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong>🔧 Tools</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Setting</th><th>Brand</th></tr>\n</thead>\n<tbody>\n", section_id));
+    let has_missing = sorted_tools.iter().any(|t| !inventory.tools.contains_key(&t.name));
+    let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+
+    let mut table = String::from(&format!("<details id=\"tools-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong{}>🔧 Tools</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Setting</th><th>Brand</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
     for tool_ref in &sorted_tools {
         if let Some(tool) = inventory.tools.get(&tool_ref.name) {
@@ -1262,8 +1390,9 @@ fn generate_tools_table(
                 tool.brand.as_deref().unwrap_or("-")
             ));
         } else {
+            warn!("Tool '{}' not found in inventory", tool_ref.name);
             table.push_str(&format!(
-                "<tr><td>{}</td><td>{}</td><td>Tool not found in inventory</td></tr>\n",
+                "<tr><td>{}</td><td>{}</td><td><span style=\"color: #e53935;\">Tool not found in inventory</span></td></tr>\n",
                 tool_ref.name,
                 tool_ref.setting.as_deref().unwrap_or("-")
             ));
@@ -1286,19 +1415,23 @@ fn generate_assemblies_table(
     let mut sorted_assemblies = assemblies.to_vec();
     sorted_assemblies.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let mut table = String::from(&format!("<details id=\"assemblies-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong>\u{1f4e6} Assemblies</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id));
+    let has_missing = sorted_assemblies.iter().any(|a| !inventory.assemblies.contains_key(&a.name));
+    let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+
+    let mut table = String::from(&format!("<details id=\"assemblies-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong{}>\u{1f4e6} Assemblies</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
     for assembly_ref in &sorted_assemblies {
         if let Some(assembly) = inventory.assemblies.get(&assembly_ref.name) {
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
                 assembly.name,
-                assembly.description.as_deref().unwrap_or("-"),
+                assembly.description.as_deref().unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
                 assembly_ref.quantity
             ));
         } else {
+            warn!("Assembly '{}' not found in inventory", assembly_ref.name);
             table.push_str(&format!(
-                "<tr><td>{}</td><td>Assembly not found in inventory</td><td>{}</td></tr>\n",
+                "<tr><td>{}</td><td><span style=\"color: #e53935;\">Assembly not found in inventory</span></td><td>{}</td></tr>\n",
                 assembly_ref.name, assembly_ref.quantity
             ));
         }
@@ -1334,6 +1467,70 @@ fn combine_assemblies(assemblies: &[AssemblyReference]) -> Vec<AssemblyReference
         .collect()
 }
 
+fn generate_units_table(
+    units: &[UnitReference],
+    inventory: &Inventory,
+    section_id: &str,
+) -> String {
+    if units.is_empty() {
+        return String::new();
+    }
+
+    let mut sorted_units = units.to_vec();
+    sorted_units.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let has_missing = sorted_units.iter().any(|u| !inventory.units.contains_key(&u.name));
+    let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+
+    let mut table = String::from(&format!("<details id=\"units-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong{}>\u{2b50} Units</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
+
+    for unit_ref in &sorted_units {
+        if let Some(unit) = inventory.units.get(&unit_ref.name) {
+            table.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+                unit.name,
+                unit.description.as_deref().unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
+                unit_ref.quantity
+            ));
+        } else {
+            warn!("Unit '{}' not found in inventory", unit_ref.name);
+            table.push_str(&format!(
+                "<tr><td>{}</td><td><span style=\"color: #e53935;\">Unit not found in inventory</span></td><td>{}</td></tr>\n",
+                unit_ref.name, unit_ref.quantity
+            ));
+        }
+    }
+
+    table.push_str("</tbody>\n</table>\n<br>\n</details>\n\n");
+    table
+}
+
+fn combine_units(units: &[UnitReference]) -> Vec<UnitReference> {
+    let mut combined: std::collections::HashMap<String, (u32, bool, bool)> =
+        std::collections::HashMap::new();
+
+    for unit in units {
+        combined
+            .entry(unit.name.clone())
+            .and_modify(|(qty, excluded_bom, excluded_overview)| {
+                *qty += unit.quantity;
+                *excluded_bom = *excluded_bom && unit.exclude_from_bom;
+                *excluded_overview = *excluded_overview && unit.exclude_from_overview;
+            })
+            .or_insert((unit.quantity, unit.exclude_from_bom, unit.exclude_from_overview));
+    }
+
+    combined
+        .into_iter()
+        .map(|(name, (quantity, exclude_from_bom, exclude_from_overview))| UnitReference {
+            name,
+            quantity,
+            exclude_from_bom,
+            exclude_from_overview,
+        })
+        .collect()
+}
+
 fn generate_subassemblies_table(
     subassemblies: &[SubassemblyReference],
     inventory: &Inventory,
@@ -1346,19 +1543,23 @@ fn generate_subassemblies_table(
     let mut sorted_subassemblies = subassemblies.to_vec();
     sorted_subassemblies.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let mut table = String::from(&format!("<details id=\"subassemblies-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong>\u{1f9e9} Subassemblies</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id));
+    let has_missing = sorted_subassemblies.iter().any(|s| !inventory.subassemblies.contains_key(&s.name));
+    let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+
+    let mut table = String::from(&format!("<details id=\"subassemblies-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong{}>\u{1f9e9} Subassemblies</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
     for subassembly_ref in &sorted_subassemblies {
         if let Some(subassembly) = inventory.subassemblies.get(&subassembly_ref.name) {
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
                 subassembly.name,
-                subassembly.description.as_deref().unwrap_or("-"),
+                subassembly.description.as_deref().unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
                 subassembly_ref.quantity
             ));
         } else {
+            warn!("Subassembly '{}' not found in inventory", subassembly_ref.name);
             table.push_str(&format!(
-                "<tr><td>{}</td><td>Subassembly not found in inventory</td><td>{}</td></tr>\n",
+                "<tr><td>{}</td><td><span style=\"color: #e53935;\">Subassembly not found in inventory</span></td><td>{}</td></tr>\n",
                 subassembly_ref.name, subassembly_ref.quantity
             ));
         }
@@ -1389,12 +1590,16 @@ fn generate_output_table(
         None => return String::new(),
     };
 
+    let mut sorted_custom_parts = output.custom_parts.clone().unwrap_or_default();
+    sorted_custom_parts.sort_by(|a, b| a.name.cmp(&b.name));
     let mut sorted_assemblies = output.assemblies.clone().unwrap_or_default();
     sorted_assemblies.sort_by(|a, b| a.name.cmp(&b.name));
     let mut sorted_subassemblies = output.subassemblies.clone().unwrap_or_default();
     sorted_subassemblies.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut sorted_units = output.units.clone().unwrap_or_default();
+    sorted_units.sort_by(|a, b| a.name.cmp(&b.name));
 
-    if sorted_assemblies.is_empty() && sorted_subassemblies.is_empty() {
+    if sorted_custom_parts.is_empty() && sorted_assemblies.is_empty() && sorted_subassemblies.is_empty() && sorted_units.is_empty() {
         return String::new();
     }
 
@@ -1404,16 +1609,47 @@ fn generate_output_table(
     table.push_str(&generate_labeled_divider("Output"));
     table.push('\n');
 
+    // Output custom parts table with colored left border
+    if !sorted_custom_parts.is_empty() {
+        let has_missing = sorted_custom_parts.iter().any(|p| !inventory.custom_parts.contains_key(&p.name));
+        let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+
+        table.push_str(&format!("<details id=\"output_custom_parts-{}\" style=\"border-left: 3px solid #4caf50; padding-left: 12px;\">\n<summary><strong{}>\u{2699}\u{fe0f} Custom Parts</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
+
+        for part_ref in &sorted_custom_parts {
+            let description = match inventory.custom_parts.get(&part_ref.name) {
+                Some(p) => p.description.as_deref()
+                    .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
+                None => {
+                    warn!("Output custom part '{}' not found in inventory", part_ref.name);
+                    "<span style=\"color: #e53935;\">Custom part not found in inventory</span>"
+                }
+            };
+            table.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+                part_ref.name, description, part_ref.quantity
+            ));
+        }
+
+        table.push_str("</tbody>\n</table>\n<br>\n</details>\n\n");
+    }
+
     // Output assemblies table with colored left border
     if !sorted_assemblies.is_empty() {
-        table.push_str(&format!("<details id=\"output_assemblies-{}\" style=\"border-left: 3px solid #4caf50; padding-left: 12px;\">\n<summary><strong>\u{1f4e6} Assemblies</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id));
+        let has_missing = sorted_assemblies.iter().any(|a| !inventory.assemblies.contains_key(&a.name));
+        let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+
+        table.push_str(&format!("<details id=\"output_assemblies-{}\" style=\"border-left: 3px solid #4caf50; padding-left: 12px;\">\n<summary><strong{}>\u{1f4e6} Assemblies</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
         for assembly_ref in &sorted_assemblies {
-            let description = inventory
-                .assemblies
-                .get(&assembly_ref.name)
-                .and_then(|a| a.description.as_deref())
-                .unwrap_or("-");
+            let description = match inventory.assemblies.get(&assembly_ref.name) {
+                Some(a) => a.description.as_deref()
+                    .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
+                None => {
+                    warn!("Output assembly '{}' not found in inventory", assembly_ref.name);
+                    "<span style=\"color: #e53935;\">Assembly not found in inventory</span>"
+                }
+            };
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
                 assembly_ref.name, description, assembly_ref.quantity
@@ -1425,17 +1661,48 @@ fn generate_output_table(
 
     // Output subassemblies table with colored left border
     if !sorted_subassemblies.is_empty() {
-        table.push_str(&format!("<details id=\"output_subassemblies-{}\" style=\"border-left: 3px solid #4caf50; padding-left: 12px;\">\n<summary><strong>\u{1f9e9} Subassemblies</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id));
+        let has_missing = sorted_subassemblies.iter().any(|s| !inventory.subassemblies.contains_key(&s.name));
+        let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+
+        table.push_str(&format!("<details id=\"output_subassemblies-{}\" style=\"border-left: 3px solid #4caf50; padding-left: 12px;\">\n<summary><strong{}>\u{1f9e9} Subassemblies</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
         for subassembly_ref in &sorted_subassemblies {
-            let description = inventory
-                .subassemblies
-                .get(&subassembly_ref.name)
-                .and_then(|s| s.description.as_deref())
-                .unwrap_or("-");
+            let description = match inventory.subassemblies.get(&subassembly_ref.name) {
+                Some(s) => s.description.as_deref()
+                    .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
+                None => {
+                    warn!("Output subassembly '{}' not found in inventory", subassembly_ref.name);
+                    "<span style=\"color: #e53935;\">Subassembly not found in inventory</span>"
+                }
+            };
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
                 subassembly_ref.name, description, subassembly_ref.quantity
+            ));
+        }
+
+        table.push_str("</tbody>\n</table>\n<br>\n</details>\n\n");
+    }
+
+    // Output units table with colored left border
+    if !sorted_units.is_empty() {
+        let has_missing = sorted_units.iter().any(|u| !inventory.units.contains_key(&u.name));
+        let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+
+        table.push_str(&format!("<details id=\"output_units-{}\" style=\"border-left: 3px solid #4caf50; padding-left: 12px;\">\n<summary><strong{}>\u{2b50} Units</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
+
+        for unit_ref in &sorted_units {
+            let description = match inventory.units.get(&unit_ref.name) {
+                Some(u) => u.description.as_deref()
+                    .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
+                None => {
+                    warn!("Output unit '{}' not found in inventory", unit_ref.name);
+                    "<span style=\"color: #e53935;\">Unit not found in inventory</span>"
+                }
+            };
+            table.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+                unit_ref.name, description, unit_ref.quantity
             ));
         }
 
@@ -1473,12 +1740,27 @@ fn combine_subassemblies(subassemblies: &[SubassemblyReference]) -> Vec<Subassem
 
 fn combine_output_metadata(outputs: &[OutputMetadata]) -> OutputMetadata {
     // (quantity, exclude_from_overview)
+    let mut custom_part_map: std::collections::HashMap<String, (u32, bool)> =
+        std::collections::HashMap::new();
     let mut assembly_map: std::collections::HashMap<String, (u32, bool)> =
         std::collections::HashMap::new();
     let mut subassembly_map: std::collections::HashMap<String, (u32, bool)> =
         std::collections::HashMap::new();
+    let mut unit_map: std::collections::HashMap<String, (u32, bool)> =
+        std::collections::HashMap::new();
 
     for output in outputs {
+        if let Some(custom_parts) = &output.custom_parts {
+            for p in custom_parts {
+                custom_part_map
+                    .entry(p.name.clone())
+                    .and_modify(|(qty, excluded)| {
+                        *qty += p.quantity;
+                        *excluded = *excluded && p.exclude_from_overview;
+                    })
+                    .or_insert((p.quantity, p.exclude_from_overview));
+            }
+        }
         if let Some(assemblies) = &output.assemblies {
             for a in assemblies {
                 assembly_map
@@ -1501,7 +1783,33 @@ fn combine_output_metadata(outputs: &[OutputMetadata]) -> OutputMetadata {
                     .or_insert((s.quantity, s.exclude_from_overview));
             }
         }
+        if let Some(units) = &output.units {
+            for u in units {
+                unit_map
+                    .entry(u.name.clone())
+                    .and_modify(|(qty, excluded)| {
+                        *qty += u.quantity;
+                        *excluded = *excluded && u.exclude_from_overview;
+                    })
+                    .or_insert((u.quantity, u.exclude_from_overview));
+            }
+        }
     }
+
+    let custom_parts = if custom_part_map.is_empty() {
+        None
+    } else {
+        Some(
+            custom_part_map
+                .into_iter()
+                .map(|(name, (quantity, exclude_from_overview))| OutputReference {
+                    name,
+                    quantity,
+                    exclude_from_overview,
+                })
+                .collect(),
+        )
+    };
 
     let assemblies = if assembly_map.is_empty() {
         None
@@ -1533,9 +1841,26 @@ fn combine_output_metadata(outputs: &[OutputMetadata]) -> OutputMetadata {
         )
     };
 
+    let units = if unit_map.is_empty() {
+        None
+    } else {
+        Some(
+            unit_map
+                .into_iter()
+                .map(|(name, (quantity, exclude_from_overview))| OutputReference {
+                    name,
+                    quantity,
+                    exclude_from_overview,
+                })
+                .collect(),
+        )
+    };
+
     OutputMetadata {
+        custom_parts,
         assemblies,
         subassemblies,
+        units,
     }
 }
 
@@ -1592,6 +1917,35 @@ fn accumulate_assemblies(
                         .unwrap_or("-")
                         .to_string(),
                     total_quantity: assembly_ref.quantity,
+                });
+        }
+    }
+}
+
+fn accumulate_units(
+    units: &[UnitReference],
+    inventory: &Inventory,
+    all_units: &mut HashMap<String, BomUnitItem>,
+) {
+    for unit_ref in units {
+        if unit_ref.exclude_from_bom {
+            continue;
+        }
+
+        if let Some(inventory_unit) = inventory.units.get(&unit_ref.name) {
+            let key = unit_ref.name.clone();
+
+            all_units
+                .entry(key)
+                .and_modify(|item| item.total_quantity += unit_ref.quantity)
+                .or_insert_with(|| BomUnitItem {
+                    name: inventory_unit.name.clone(),
+                    description: inventory_unit
+                        .description
+                        .as_deref()
+                        .unwrap_or("-")
+                        .to_string(),
+                    total_quantity: unit_ref.quantity,
                 });
         }
     }
@@ -1774,6 +2128,7 @@ fn generate_bom_excel_file(
     tools: &HashMap<String, BomToolItem>,
     assemblies: &HashMap<String, BomAssemblyItem>,
     subassemblies: &HashMap<String, BomSubassemblyItem>,
+    units: &HashMap<String, BomUnitItem>,
     output_path: &str,
 ) -> Result<(), Error> {
     let mut workbook = Workbook::new();
@@ -2014,6 +2369,42 @@ fn generate_bom_excel_file(
                 .map_err(|e| Error::msg(format!("Failed to write data: {}", e)))?;
             worksheet
                 .write_number(row as u32, 2, subassembly.total_quantity as f64)
+                .map_err(|e| Error::msg(format!("Failed to write data: {}", e)))?;
+        }
+    }
+
+    // Generate Units sheet
+    if !units.is_empty() {
+        let worksheet = workbook
+            .add_worksheet()
+            .set_name("Units")
+            .map_err(|e| Error::msg(format!("Failed to set sheet name: {}", e)))?;
+
+        // Headers
+        worksheet
+            .write_string(0, 0, "Name")
+            .map_err(|e| Error::msg(format!("Failed to write header: {}", e)))?;
+        worksheet
+            .write_string(0, 1, "Description")
+            .map_err(|e| Error::msg(format!("Failed to write header: {}", e)))?;
+        worksheet
+            .write_string(0, 2, "Quantity")
+            .map_err(|e| Error::msg(format!("Failed to write header: {}", e)))?;
+
+        // Data
+        let mut sorted_units: Vec<_> = units.values().collect();
+        sorted_units.sort_by(|a, b| a.name.cmp(&b.name));
+
+        for (row, unit) in sorted_units.iter().enumerate() {
+            let row = row + 1; // Skip header row
+            worksheet
+                .write_string(row as u32, 0, &unit.name)
+                .map_err(|e| Error::msg(format!("Failed to write data: {}", e)))?;
+            worksheet
+                .write_string(row as u32, 1, &unit.description)
+                .map_err(|e| Error::msg(format!("Failed to write data: {}", e)))?;
+            worksheet
+                .write_number(row as u32, 2, unit.total_quantity as f64)
                 .map_err(|e| Error::msg(format!("Failed to write data: {}", e)))?;
         }
     }
