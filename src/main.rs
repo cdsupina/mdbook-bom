@@ -340,13 +340,15 @@ impl Preprocessor for BomPreprocessor {
         "bom"
     }
 
-    fn run(&self, _ctx: &PreprocessorContext, mut book: Book) -> Result<Book, Error> {
+    fn run(&self, ctx: &PreprocessorContext, mut book: Book) -> Result<Book, Error> {
         // Read configuration from environment variables (loaded from .env file)
         let excel_path = std::env::var("BOM_INVENTORY_FILE")
             .map_err(|_| Error::msg("BOM_INVENTORY_FILE environment variable is required. Set it in .env file in the book directory."))?;
 
-        let output_path = std::env::var("BOM_OUTPUT_PATH")
+        let raw_output_path = std::env::var("BOM_OUTPUT_PATH")
             .map_err(|_| Error::msg("BOM_OUTPUT_PATH environment variable is required. Set it in .env file in the book directory."))?;
+
+        let output_path = resolve_output_path(&raw_output_path, &ctx.root)?;
 
         // Load inventory data
         let inventory = Inventory::load(&excel_path)?;
@@ -2103,6 +2105,51 @@ fn accumulate_tools(
                     }
                 });
         }
+    }
+}
+
+fn resolve_git_ref(book_root: &std::path::Path) -> Result<String, Error> {
+    // Try exact tag match first
+    let tag_output = std::process::Command::new("git")
+        .args(["describe", "--exact-match", "--tags"])
+        .current_dir(book_root)
+        .output()
+        .map_err(|e| Error::msg(format!("Failed to run git: {}", e)))?;
+
+    if tag_output.status.success() {
+        let tag = String::from_utf8_lossy(&tag_output.stdout).trim().to_string();
+        if !tag.is_empty() {
+            return Ok(tag);
+        }
+    }
+
+    // Fall back to current branch name
+    let branch_output = std::process::Command::new("git")
+        .args(["branch", "--show-current"])
+        .current_dir(book_root)
+        .output()
+        .map_err(|e| Error::msg(format!("Failed to run git: {}", e)))?;
+
+    if branch_output.status.success() {
+        let branch = String::from_utf8_lossy(&branch_output.stdout)
+            .trim()
+            .to_string();
+        if !branch.is_empty() {
+            return Ok(branch);
+        }
+    }
+
+    Err(Error::msg(
+        "BOM_OUTPUT_PATH contains {git_ref} but could not determine git tag or branch name",
+    ))
+}
+
+fn resolve_output_path(raw_path: &str, book_root: &std::path::Path) -> Result<String, Error> {
+    if raw_path.contains("{git_ref}") {
+        let git_ref = resolve_git_ref(book_root)?;
+        Ok(raw_path.replace("{git_ref}", &git_ref))
+    } else {
+        Ok(raw_path.to_string())
     }
 }
 

@@ -58,6 +58,20 @@ The preprocessor requires an Excel inventory file with the following sheets:
 
 The `inventory_file` path supports home directory expansion with `~/`.
 
+### `{git_ref}` Template Variable
+
+`BOM_OUTPUT_PATH` supports a `{git_ref}` placeholder that is resolved at build time to the current git tag (exact match) or branch name. This allows versioned BOM output when building different tagged releases:
+
+```bash
+BOM_OUTPUT_PATH="/path/to/BOMs/superfly_BOM_{git_ref}.xlsx"
+# On tag v2.0.1 → /path/to/BOMs/superfly_BOM_v2.0.1.xlsx
+# On branch main → /path/to/BOMs/superfly_BOM_main.xlsx
+```
+
+If no `{git_ref}` placeholder is present, no git commands are run and behavior is identical to before. If `{git_ref}` is present but the git ref cannot be determined, the build fails with a clear error.
+
+Implemented via `resolve_git_ref()` and `resolve_output_path()` functions near `create_output_directory_for_path()`.
+
 ## Architecture
 
 ### Main Components

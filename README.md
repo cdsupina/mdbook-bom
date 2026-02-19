@@ -36,6 +36,14 @@ BOM_INVENTORY_FILE="/path/to/inventory.xlsx"
 BOM_OUTPUT_PATH="/path/to/output/BOM.xlsx"
 ```
 
+`BOM_OUTPUT_PATH` supports a `{git_ref}` template variable that resolves to the current git tag or branch name, useful for versioned builds:
+
+```bash
+BOM_OUTPUT_PATH="/path/to/BOMs/project_BOM_{git_ref}.xlsx"
+# On tag v2.0.1 → project_BOM_v2.0.1.xlsx
+# On branch main → project_BOM_main.xlsx
+```
+
 **Important**: Add `.env` to your `.gitignore` file to keep local paths out of version control.
 
 ### 2. Create inventory file
