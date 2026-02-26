@@ -1,6 +1,6 @@
 use calamine::{open_workbook, RangeDeserializerBuilder, Reader, Xlsx};
-use log::warn;
 use clap::{Arg, ArgMatches, Command};
+use log::warn;
 use mdbook::book::{Book, BookItem};
 use mdbook::errors::Error;
 use mdbook::preprocess::{CmdPreprocessor, Preprocessor, PreprocessorContext};
@@ -63,6 +63,8 @@ struct Inventory {
     assemblies: HashMap<String, InventoryAssembly>,
     subassemblies: HashMap<String, InventorySubassembly>,
     units: HashMap<String, InventoryUnit>,
+    wire_harnesses: HashMap<String, InventoryWireHarness>,
+    pcbs: HashMap<String, InventoryPcb>,
 }
 
 impl Inventory {
@@ -97,6 +99,8 @@ impl Inventory {
         let assemblies = Self::load_assemblies_from_excel(&expanded_path)?;
         let subassemblies = Self::load_subassemblies_from_excel(&expanded_path)?;
         let units = Self::load_units_from_excel(&expanded_path)?;
+        let wire_harnesses = Self::load_wire_harnesses_from_excel(&expanded_path)?;
+        let pcbs = Self::load_pcbs_from_excel(&expanded_path)?;
 
         Ok(Inventory {
             fasteners,
@@ -107,6 +111,8 @@ impl Inventory {
             assemblies,
             subassemblies,
             units,
+            wire_harnesses,
+            pcbs,
         })
     }
 
@@ -116,9 +122,13 @@ impl Inventory {
         let mut workbook: Xlsx<_> = open_workbook(excel_path)
             .map_err(|e| Error::msg(format!("Failed to open Excel file: {}", e)))?;
 
-        let range = workbook
-            .worksheet_range("Hardware")
-            .map_err(|e| Error::msg(format!("Failed to read 'Hardware' sheet: {}", e)))?;
+        let range = match workbook.worksheet_range("Hardware") {
+            Ok(r) => r,
+            Err(_) => {
+                warn!("'Hardware' sheet not found in inventory - skipping");
+                return Ok(HashMap::new());
+            }
+        };
 
         let mut hardware = HashMap::new();
         let iter = RangeDeserializerBuilder::new()
@@ -142,9 +152,13 @@ impl Inventory {
         let mut workbook: Xlsx<_> = open_workbook(excel_path)
             .map_err(|e| Error::msg(format!("Failed to open Excel file: {}", e)))?;
 
-        let range = workbook
-            .worksheet_range("Electronics")
-            .map_err(|e| Error::msg(format!("Failed to read 'Electronics' sheet: {}", e)))?;
+        let range = match workbook.worksheet_range("Electronics") {
+            Ok(r) => r,
+            Err(_) => {
+                warn!("'Electronics' sheet not found in inventory - skipping");
+                return Ok(HashMap::new());
+            }
+        };
 
         let mut electronics = HashMap::new();
         let iter = RangeDeserializerBuilder::new()
@@ -171,9 +185,13 @@ impl Inventory {
         let mut workbook: Xlsx<_> = open_workbook(excel_path)
             .map_err(|e| Error::msg(format!("Failed to open Excel file: {}", e)))?;
 
-        let range = workbook
-            .worksheet_range("Custom Parts")
-            .map_err(|e| Error::msg(format!("Failed to read 'Custom Parts' sheet: {}", e)))?;
+        let range = match workbook.worksheet_range("Custom Parts") {
+            Ok(r) => r,
+            Err(_) => {
+                warn!("'Custom Parts' sheet not found in inventory - skipping");
+                return Ok(HashMap::new());
+            }
+        };
 
         let mut custom_parts = HashMap::new();
         let iter = RangeDeserializerBuilder::new()
@@ -200,9 +218,13 @@ impl Inventory {
         let mut workbook: Xlsx<_> = open_workbook(excel_path)
             .map_err(|e| Error::msg(format!("Failed to open Excel file: {}", e)))?;
 
-        let range = workbook
-            .worksheet_range("Consumables")
-            .map_err(|e| Error::msg(format!("Failed to read 'Consumables' sheet: {}", e)))?;
+        let range = match workbook.worksheet_range("Consumables") {
+            Ok(r) => r,
+            Err(_) => {
+                warn!("'Consumables' sheet not found in inventory - skipping");
+                return Ok(HashMap::new());
+            }
+        };
 
         let mut consumables = HashMap::new();
         let iter = RangeDeserializerBuilder::new()
@@ -227,9 +249,13 @@ impl Inventory {
         let mut workbook: Xlsx<_> = open_workbook(excel_path)
             .map_err(|e| Error::msg(format!("Failed to open Excel file: {}", e)))?;
 
-        let range = workbook
-            .worksheet_range("Tools")
-            .map_err(|e| Error::msg(format!("Failed to read 'Tools' sheet: {}", e)))?;
+        let range = match workbook.worksheet_range("Tools") {
+            Ok(r) => r,
+            Err(_) => {
+                warn!("'Tools' sheet not found in inventory - skipping");
+                return Ok(HashMap::new());
+            }
+        };
 
         let mut tools = HashMap::new();
         let iter = RangeDeserializerBuilder::new()
@@ -251,9 +277,13 @@ impl Inventory {
         let mut workbook: Xlsx<_> = open_workbook(excel_path)
             .map_err(|e| Error::msg(format!("Failed to open Excel file: {}", e)))?;
 
-        let range = workbook
-            .worksheet_range("Assemblies")
-            .map_err(|e| Error::msg(format!("Failed to read 'Assemblies' sheet: {}", e)))?;
+        let range = match workbook.worksheet_range("Assemblies") {
+            Ok(r) => r,
+            Err(_) => {
+                warn!("'Assemblies' sheet not found in inventory - skipping");
+                return Ok(HashMap::new());
+            }
+        };
 
         let mut assemblies = HashMap::new();
         let iter = RangeDeserializerBuilder::new()
@@ -280,9 +310,13 @@ impl Inventory {
         let mut workbook: Xlsx<_> = open_workbook(excel_path)
             .map_err(|e| Error::msg(format!("Failed to open Excel file: {}", e)))?;
 
-        let range = workbook
-            .worksheet_range("Subassemblies")
-            .map_err(|e| Error::msg(format!("Failed to read 'Subassemblies' sheet: {}", e)))?;
+        let range = match workbook.worksheet_range("Subassemblies") {
+            Ok(r) => r,
+            Err(_) => {
+                warn!("'Subassemblies' sheet not found in inventory - skipping");
+                return Ok(HashMap::new());
+            }
+        };
 
         let mut subassemblies = HashMap::new();
         let iter = RangeDeserializerBuilder::new()
@@ -303,25 +337,22 @@ impl Inventory {
         Ok(subassemblies)
     }
 
-    fn load_units_from_excel(
-        excel_path: &str,
-    ) -> Result<HashMap<String, InventoryUnit>, Error> {
+    fn load_units_from_excel(excel_path: &str) -> Result<HashMap<String, InventoryUnit>, Error> {
         let mut workbook: Xlsx<_> = open_workbook(excel_path)
             .map_err(|e| Error::msg(format!("Failed to open Excel file: {}", e)))?;
 
-        let range = workbook
-            .worksheet_range("Units")
-            .map_err(|e| Error::msg(format!("Failed to read 'Units' sheet: {}", e)))?;
+        let range = match workbook.worksheet_range("Units") {
+            Ok(r) => r,
+            Err(_) => {
+                warn!("'Units' sheet not found in inventory - skipping");
+                return Ok(HashMap::new());
+            }
+        };
 
         let mut units = HashMap::new();
         let iter = RangeDeserializerBuilder::new()
             .from_range(&range)
-            .map_err(|e| {
-                Error::msg(format!(
-                    "Failed to create deserializer for units: {}",
-                    e
-                ))
-            })?;
+            .map_err(|e| Error::msg(format!("Failed to create deserializer for units: {}", e)))?;
 
         for result in iter {
             let unit: InventoryUnit =
@@ -330,6 +361,65 @@ impl Inventory {
         }
 
         Ok(units)
+    }
+
+    fn load_wire_harnesses_from_excel(
+        excel_path: &str,
+    ) -> Result<HashMap<String, InventoryWireHarness>, Error> {
+        let mut workbook: Xlsx<_> = open_workbook(excel_path)
+            .map_err(|e| Error::msg(format!("Failed to open Excel file: {}", e)))?;
+
+        let range = match workbook.worksheet_range("Wire Harnesses") {
+            Ok(r) => r,
+            Err(_) => {
+                warn!("'Wire Harnesses' sheet not found in inventory - skipping");
+                return Ok(HashMap::new());
+            }
+        };
+
+        let mut wire_harnesses = HashMap::new();
+        let iter = RangeDeserializerBuilder::new()
+            .from_range(&range)
+            .map_err(|e| {
+                Error::msg(format!(
+                    "Failed to create deserializer for wire harnesses: {}",
+                    e
+                ))
+            })?;
+
+        for result in iter {
+            let wire_harness: InventoryWireHarness = result
+                .map_err(|e| Error::msg(format!("Failed to parse wire harness row: {}", e)))?;
+            wire_harnesses.insert(wire_harness.name.clone(), wire_harness);
+        }
+
+        Ok(wire_harnesses)
+    }
+
+    fn load_pcbs_from_excel(excel_path: &str) -> Result<HashMap<String, InventoryPcb>, Error> {
+        let mut workbook: Xlsx<_> = open_workbook(excel_path)
+            .map_err(|e| Error::msg(format!("Failed to open Excel file: {}", e)))?;
+
+        let range = match workbook.worksheet_range("PCBs") {
+            Ok(r) => r,
+            Err(_) => {
+                warn!("'PCBs' sheet not found in inventory - skipping");
+                return Ok(HashMap::new());
+            }
+        };
+
+        let mut pcbs = HashMap::new();
+        let iter = RangeDeserializerBuilder::new()
+            .from_range(&range)
+            .map_err(|e| Error::msg(format!("Failed to create deserializer for pcbs: {}", e)))?;
+
+        for result in iter {
+            let pcb: InventoryPcb =
+                result.map_err(|e| Error::msg(format!("Failed to parse pcb row: {}", e)))?;
+            pcbs.insert(pcb.name.clone(), pcb);
+        }
+
+        Ok(pcbs)
     }
 }
 
@@ -361,6 +451,8 @@ impl Preprocessor for BomPreprocessor {
         let mut all_assemblies: HashMap<String, BomAssemblyItem> = HashMap::new();
         let mut all_subassemblies: HashMap<String, BomSubassemblyItem> = HashMap::new();
         let mut all_units: HashMap<String, BomUnitItem> = HashMap::new();
+        let mut all_wire_harnesses: HashMap<String, BomWireHarnessItem> = HashMap::new();
+        let mut all_pcbs: HashMap<String, BomPcbItem> = HashMap::new();
 
         book.for_each_mut(|item: &mut BookItem| {
             if let BookItem::Chapter(ch) = item {
@@ -371,8 +463,11 @@ impl Preprocessor for BomPreprocessor {
                     // Parse YAML
                     if let Ok(metadata) = serde_yml::from_str::<ChapterMetadata>(&front_matter) {
                         // Insert tables after step headers
-                        ch.content =
-                            insert_section_tables(&content_without_fm, &metadata.sections, &inventory);
+                        ch.content = insert_section_tables(
+                            &content_without_fm,
+                            &metadata.sections,
+                            &inventory,
+                        );
 
                         // Only accumulate into BOM if chapter is not excluded
                         if metadata.exclude_from_bom {
@@ -382,21 +477,19 @@ impl Preprocessor for BomPreprocessor {
                         // Accumulate all items from all sections for BOM
                         for section_metadata in metadata.sections.values() {
                             if let Some(input) = &section_metadata.input {
-                                let hardware =
-                                    input.hardware.as_deref().unwrap_or_default();
-                                let electronics =
-                                    input.electronics.as_deref().unwrap_or_default();
+                                let hardware = input.hardware.as_deref().unwrap_or_default();
+                                let electronics = input.electronics.as_deref().unwrap_or_default();
                                 let custom_parts =
                                     input.custom_parts.as_deref().unwrap_or_default();
-                                let consumables =
-                                    input.consumables.as_deref().unwrap_or_default();
+                                let consumables = input.consumables.as_deref().unwrap_or_default();
                                 let tools = input.tools.as_deref().unwrap_or_default();
-                                let assemblies =
-                                    input.assemblies.as_deref().unwrap_or_default();
+                                let assemblies = input.assemblies.as_deref().unwrap_or_default();
                                 let subassemblies =
                                     input.subassemblies.as_deref().unwrap_or_default();
-                                let units =
-                                    input.units.as_deref().unwrap_or_default();
+                                let units = input.units.as_deref().unwrap_or_default();
+                                let wire_harnesses =
+                                    input.wire_harnesses.as_deref().unwrap_or_default();
+                                let pcbs = input.pcbs.as_deref().unwrap_or_default();
 
                                 accumulate_fasteners(hardware, &inventory, &mut all_fasteners);
                                 accumulate_electronics(
@@ -415,21 +508,19 @@ impl Preprocessor for BomPreprocessor {
                                     &mut all_consumables,
                                 );
                                 accumulate_tools(tools, &inventory, &mut all_tools);
-                                accumulate_assemblies(
-                                    assemblies,
-                                    &inventory,
-                                    &mut all_assemblies,
-                                );
+                                accumulate_assemblies(assemblies, &inventory, &mut all_assemblies);
                                 accumulate_subassemblies(
                                     subassemblies,
                                     &inventory,
                                     &mut all_subassemblies,
                                 );
-                                accumulate_units(
-                                    units,
+                                accumulate_units(units, &inventory, &mut all_units);
+                                accumulate_wire_harnesses(
+                                    wire_harnesses,
                                     &inventory,
-                                    &mut all_units,
+                                    &mut all_wire_harnesses,
                                 );
+                                accumulate_pcbs(pcbs, &inventory, &mut all_pcbs);
                             }
                         }
                     }
@@ -450,6 +541,8 @@ impl Preprocessor for BomPreprocessor {
             &all_assemblies,
             &all_subassemblies,
             &all_units,
+            &all_wire_harnesses,
+            &all_pcbs,
             &output_path,
         )?;
 
@@ -480,6 +573,8 @@ struct InputMetadata {
     assemblies: Option<Vec<AssemblyReference>>,
     subassemblies: Option<Vec<SubassemblyReference>>,
     units: Option<Vec<UnitReference>>,
+    wire_harnesses: Option<Vec<WireHarnessReference>>,
+    pcbs: Option<Vec<PcbReference>>,
 }
 
 // Simplified front matter structures
@@ -543,6 +638,26 @@ struct UnitReference {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+struct WireHarnessReference {
+    name: String,
+    quantity: u32,
+    #[serde(default)]
+    exclude_from_bom: bool,
+    #[serde(default)]
+    exclude_from_overview: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct PcbReference {
+    name: String,
+    quantity: u32,
+    #[serde(default)]
+    exclude_from_bom: bool,
+    #[serde(default)]
+    exclude_from_overview: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 struct OutputReference {
     name: String,
     quantity: u32,
@@ -556,6 +671,8 @@ struct OutputMetadata {
     assemblies: Option<Vec<OutputReference>>,
     subassemblies: Option<Vec<OutputReference>>,
     units: Option<Vec<OutputReference>>,
+    wire_harnesses: Option<Vec<OutputReference>>,
+    pcbs: Option<Vec<OutputReference>>,
 }
 
 // Inventory structures
@@ -617,6 +734,22 @@ struct InventorySubassembly {
 
 #[derive(Debug, Deserialize, Clone)]
 struct InventoryUnit {
+    #[serde(rename = "Name")]
+    name: String,
+    #[serde(rename = "Description", default)]
+    description: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct InventoryWireHarness {
+    #[serde(rename = "Name")]
+    name: String,
+    #[serde(rename = "Description", default)]
+    description: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct InventoryPcb {
     #[serde(rename = "Name")]
     name: String,
     #[serde(rename = "Description", default)]
@@ -689,6 +822,20 @@ struct BomSubassemblyItem {
 
 #[derive(Debug, Clone)]
 struct BomUnitItem {
+    name: String,
+    description: String,
+    total_quantity: u32,
+}
+
+#[derive(Debug, Clone)]
+struct BomWireHarnessItem {
+    name: String,
+    description: String,
+    total_quantity: u32,
+}
+
+#[derive(Debug, Clone)]
+struct BomPcbItem {
     name: String,
     description: String,
     total_quantity: u32,
@@ -790,6 +937,8 @@ fn insert_section_tables(
                         assemblies: None,
                         subassemblies: None,
                         units: None,
+                        wire_harnesses: None,
+                        pcbs: None,
                     };
                     let input = section_metadata.input.as_ref().unwrap_or(&empty_input);
                     let hardware = input.hardware.as_deref().unwrap_or_default();
@@ -800,6 +949,8 @@ fn insert_section_tables(
                     let assemblies = input.assemblies.as_deref().unwrap_or_default();
                     let subassemblies = input.subassemblies.as_deref().unwrap_or_default();
                     let units = input.units.as_deref().unwrap_or_default();
+                    let wire_harnesses = input.wire_harnesses.as_deref().unwrap_or_default();
+                    let pcbs = input.pcbs.as_deref().unwrap_or_default();
 
                     let hardware_table = generate_fasteners_table(hardware, inventory, step_key);
                     let electronics_table =
@@ -813,8 +964,10 @@ fn insert_section_tables(
                         generate_assemblies_table(assemblies, inventory, step_key);
                     let subassemblies_table =
                         generate_subassemblies_table(subassemblies, inventory, step_key);
-                    let units_table =
-                        generate_units_table(units, inventory, step_key);
+                    let units_table = generate_units_table(units, inventory, step_key);
+                    let wire_harnesses_table =
+                        generate_wire_harnesses_table(wire_harnesses, inventory, step_key);
+                    let pcbs_table = generate_pcbs_table(pcbs, inventory, step_key);
                     let output_table = generate_output_table(
                         section_metadata.output.as_ref(),
                         inventory,
@@ -828,7 +981,9 @@ fn insert_section_tables(
                         || !tools_table.is_empty()
                         || !assemblies_table.is_empty()
                         || !subassemblies_table.is_empty()
-                        || !units_table.is_empty();
+                        || !units_table.is_empty()
+                        || !wire_harnesses_table.is_empty()
+                        || !pcbs_table.is_empty();
 
                     if has_input_tables {
                         // Add Show All button before tables
@@ -862,6 +1017,14 @@ fn insert_section_tables(
                     if !units_table.is_empty() {
                         result.push("".to_string());
                         result.extend(units_table.lines().map(|s| s.to_string()));
+                    }
+                    if !wire_harnesses_table.is_empty() {
+                        result.push("".to_string());
+                        result.extend(wire_harnesses_table.lines().map(|s| s.to_string()));
+                    }
+                    if !pcbs_table.is_empty() {
+                        result.push("".to_string());
+                        result.extend(pcbs_table.lines().map(|s| s.to_string()));
                     }
                     if !tools_table.is_empty() {
                         result.push("".to_string());
@@ -909,6 +1072,8 @@ fn generate_overview_tables(
     let mut all_assemblies = Vec::new();
     let mut all_subassemblies = Vec::new();
     let mut all_units = Vec::new();
+    let mut all_wire_harnesses = Vec::new();
+    let mut all_pcbs = Vec::new();
     let mut all_outputs = Vec::new();
 
     for section_metadata in sections.values() {
@@ -936,6 +1101,12 @@ fn generate_overview_tables(
             }
             if let Some(units) = &input.units {
                 all_units.extend(units.clone());
+            }
+            if let Some(wire_harnesses) = &input.wire_harnesses {
+                all_wire_harnesses.extend(wire_harnesses.clone());
+            }
+            if let Some(pcbs) = &input.pcbs {
+                all_pcbs.extend(pcbs.clone());
             }
         }
         if let Some(output) = &section_metadata.output {
@@ -976,20 +1147,34 @@ fn generate_overview_tables(
         .into_iter()
         .filter(|u| !u.exclude_from_overview)
         .collect();
+    let combined_wire_harnesses: Vec<_> = combine_wire_harnesses(&all_wire_harnesses)
+        .into_iter()
+        .filter(|w| !w.exclude_from_overview)
+        .collect();
+    let combined_pcbs: Vec<_> = combine_pcbs(&all_pcbs)
+        .into_iter()
+        .filter(|p| !p.exclude_from_overview)
+        .collect();
     let combined_output = combine_output_metadata(&all_outputs);
     let filtered_output = OutputMetadata {
-        custom_parts: combined_output.custom_parts.map(|v| {
-            v.into_iter().filter(|p| !p.exclude_from_overview).collect()
-        }),
-        assemblies: combined_output.assemblies.map(|v| {
-            v.into_iter().filter(|a| !a.exclude_from_overview).collect()
-        }),
-        subassemblies: combined_output.subassemblies.map(|v| {
-            v.into_iter().filter(|s| !s.exclude_from_overview).collect()
-        }),
-        units: combined_output.units.map(|v| {
-            v.into_iter().filter(|u| !u.exclude_from_overview).collect()
-        }),
+        custom_parts: combined_output
+            .custom_parts
+            .map(|v| v.into_iter().filter(|p| !p.exclude_from_overview).collect()),
+        assemblies: combined_output
+            .assemblies
+            .map(|v| v.into_iter().filter(|a| !a.exclude_from_overview).collect()),
+        subassemblies: combined_output
+            .subassemblies
+            .map(|v| v.into_iter().filter(|s| !s.exclude_from_overview).collect()),
+        units: combined_output
+            .units
+            .map(|v| v.into_iter().filter(|u| !u.exclude_from_overview).collect()),
+        wire_harnesses: combined_output
+            .wire_harnesses
+            .map(|v| v.into_iter().filter(|w| !w.exclude_from_overview).collect()),
+        pcbs: combined_output
+            .pcbs
+            .map(|v| v.into_iter().filter(|p| !p.exclude_from_overview).collect()),
     };
 
     let mut overview = String::new();
@@ -1003,11 +1188,13 @@ fn generate_overview_tables(
     let consumables_table =
         generate_consumables_table(&combined_consumables, inventory, "overview");
     let tools_table = generate_tools_table(&combined_tools, inventory, "overview");
-    let assemblies_table =
-        generate_assemblies_table(&combined_assemblies, inventory, "overview");
+    let assemblies_table = generate_assemblies_table(&combined_assemblies, inventory, "overview");
     let subassemblies_table =
         generate_subassemblies_table(&combined_subassemblies, inventory, "overview");
     let units_table = generate_units_table(&combined_units, inventory, "overview");
+    let wire_harnesses_table =
+        generate_wire_harnesses_table(&combined_wire_harnesses, inventory, "overview");
+    let pcbs_table = generate_pcbs_table(&combined_pcbs, inventory, "overview");
     let output_table = generate_output_table(Some(&filtered_output), inventory, "overview");
 
     let has_input_tables = !hardware_table.is_empty()
@@ -1017,7 +1204,9 @@ fn generate_overview_tables(
         || !tools_table.is_empty()
         || !assemblies_table.is_empty()
         || !subassemblies_table.is_empty()
-        || !units_table.is_empty();
+        || !units_table.is_empty()
+        || !wire_harnesses_table.is_empty()
+        || !pcbs_table.is_empty();
 
     let has_tables = has_input_tables || !output_table.is_empty();
 
@@ -1054,6 +1243,14 @@ fn generate_overview_tables(
             overview.push_str(&units_table);
             overview.push('\n');
         }
+        if !wire_harnesses_table.is_empty() {
+            overview.push_str(&wire_harnesses_table);
+            overview.push('\n');
+        }
+        if !pcbs_table.is_empty() {
+            overview.push_str(&pcbs_table);
+            overview.push('\n');
+        }
         if !tools_table.is_empty() {
             overview.push_str(&tools_table);
             overview.push('\n');
@@ -1083,17 +1280,23 @@ fn combine_parts(parts: &[PartReference]) -> Vec<PartReference> {
                 *excluded_bom = *excluded_bom && part.exclude_from_bom;
                 *excluded_overview = *excluded_overview && part.exclude_from_overview;
             })
-            .or_insert((part.quantity, part.exclude_from_bom, part.exclude_from_overview));
+            .or_insert((
+                part.quantity,
+                part.exclude_from_bom,
+                part.exclude_from_overview,
+            ));
     }
 
     combined
         .into_iter()
-        .map(|(name, (quantity, exclude_from_bom, exclude_from_overview))| PartReference {
-            name,
-            quantity,
-            exclude_from_bom,
-            exclude_from_overview,
-        })
+        .map(
+            |(name, (quantity, exclude_from_bom, exclude_from_overview))| PartReference {
+                name,
+                quantity,
+                exclude_from_bom,
+                exclude_from_overview,
+            },
+        )
         .collect()
 }
 
@@ -1108,16 +1311,21 @@ fn deduplicate_consumables(consumables: &[ConsumableReference]) -> Vec<Consumabl
                 *excluded_bom = *excluded_bom && consumable.exclude_from_bom;
                 *excluded_overview = *excluded_overview && consumable.exclude_from_overview;
             })
-            .or_insert((consumable.exclude_from_bom, consumable.exclude_from_overview));
+            .or_insert((
+                consumable.exclude_from_bom,
+                consumable.exclude_from_overview,
+            ));
     }
 
     combined
         .into_iter()
-        .map(|(name, (exclude_from_bom, exclude_from_overview))| ConsumableReference {
-            name,
-            exclude_from_bom,
-            exclude_from_overview,
-        })
+        .map(
+            |(name, (exclude_from_bom, exclude_from_overview))| ConsumableReference {
+                name,
+                exclude_from_bom,
+                exclude_from_overview,
+            },
+        )
         .collect()
 }
 
@@ -1128,9 +1336,13 @@ fn deduplicate_tools(tools: &[ToolReference]) -> Vec<ToolReference> {
     > = std::collections::HashMap::new();
 
     for tool in tools {
-        let entry = combined
-            .entry(tool.name.clone())
-            .or_insert_with(|| (std::collections::HashSet::new(), tool.exclude_from_bom, tool.exclude_from_overview));
+        let entry = combined.entry(tool.name.clone()).or_insert_with(|| {
+            (
+                std::collections::HashSet::new(),
+                tool.exclude_from_bom,
+                tool.exclude_from_overview,
+            )
+        });
         if let Some(setting) = &tool.setting {
             entry.0.insert(setting.clone());
         }
@@ -1140,19 +1352,21 @@ fn deduplicate_tools(tools: &[ToolReference]) -> Vec<ToolReference> {
 
     combined
         .into_iter()
-        .map(|(name, (settings, exclude_from_bom, exclude_from_overview))| {
-            let setting = if settings.is_empty() {
-                None
-            } else {
-                Some(settings.into_iter().collect::<Vec<_>>().join(", "))
-            };
-            ToolReference {
-                name,
-                setting,
-                exclude_from_bom,
-                exclude_from_overview,
-            }
-        })
+        .map(
+            |(name, (settings, exclude_from_bom, exclude_from_overview))| {
+                let setting = if settings.is_empty() {
+                    None
+                } else {
+                    Some(settings.into_iter().collect::<Vec<_>>().join(", "))
+                };
+                ToolReference {
+                    name,
+                    setting,
+                    exclude_from_bom,
+                    exclude_from_overview,
+                }
+            },
+        )
         .collect()
 }
 
@@ -1200,10 +1414,14 @@ function toggleAllTables(sectionId) {{
         document.getElementById('assemblies-' + sectionId),
         document.getElementById('subassemblies-' + sectionId),
         document.getElementById('units-' + sectionId),
+        document.getElementById('wire_harnesses-' + sectionId),
+        document.getElementById('pcbs-' + sectionId),
         document.getElementById('output_custom_parts-' + sectionId),
         document.getElementById('output_assemblies-' + sectionId),
         document.getElementById('output_subassemblies-' + sectionId),
-        document.getElementById('output_units-' + sectionId)
+        document.getElementById('output_units-' + sectionId),
+        document.getElementById('output_wire_harnesses-' + sectionId),
+        document.getElementById('output_pcbs-' + sectionId)
     ].filter(el => el !== null);
 
     detailsElements.forEach(details => {{
@@ -1227,8 +1445,14 @@ fn generate_fasteners_table(
     let mut sorted_parts = parts.to_vec();
     sorted_parts.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let has_missing = sorted_parts.iter().any(|p| !inventory.fasteners.contains_key(&p.name));
-    let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+    let has_missing = sorted_parts
+        .iter()
+        .any(|p| !inventory.fasteners.contains_key(&p.name));
+    let title_style = if has_missing {
+        " style=\"color: #e53935;\""
+    } else {
+        ""
+    };
 
     let mut table = String::from(&format!("<details id=\"hardware-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong{}>🔩 Hardware</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
@@ -1237,7 +1461,9 @@ fn generate_fasteners_table(
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
                 part.part_number,
-                part.description.as_deref().unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
+                part.description
+                    .as_deref()
+                    .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
                 part_ref.quantity
             ));
         } else {
@@ -1265,8 +1491,14 @@ fn generate_electronics_table(
     let mut sorted_parts = parts.to_vec();
     sorted_parts.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let has_missing = sorted_parts.iter().any(|p| !inventory.electronics.contains_key(&p.name));
-    let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+    let has_missing = sorted_parts
+        .iter()
+        .any(|p| !inventory.electronics.contains_key(&p.name));
+    let title_style = if has_missing {
+        " style=\"color: #e53935;\""
+    } else {
+        ""
+    };
 
     let mut table = String::from(&format!("<details id=\"electronics-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong{}>🔌 Electronics</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
@@ -1275,11 +1507,16 @@ fn generate_electronics_table(
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
                 part.part_number,
-                part.description.as_deref().unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
+                part.description
+                    .as_deref()
+                    .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
                 part_ref.quantity
             ));
         } else {
-            warn!("Electronic component '{}' not found in inventory", part_ref.name);
+            warn!(
+                "Electronic component '{}' not found in inventory",
+                part_ref.name
+            );
             table.push_str(&format!(
                 "<tr><td>{}</td><td><span style=\"color: #e53935;\">Electronic component not found in inventory</span></td><td>{}</td></tr>\n",
                 part_ref.name, part_ref.quantity
@@ -1303,8 +1540,14 @@ fn generate_custom_parts_table(
     let mut sorted_parts = parts.to_vec();
     sorted_parts.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let has_missing = sorted_parts.iter().any(|p| !inventory.custom_parts.contains_key(&p.name));
-    let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+    let has_missing = sorted_parts
+        .iter()
+        .any(|p| !inventory.custom_parts.contains_key(&p.name));
+    let title_style = if has_missing {
+        " style=\"color: #e53935;\""
+    } else {
+        ""
+    };
 
     let mut table = String::from(&format!("<details id=\"custom_parts-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong{}>⚙️ Custom Parts</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
@@ -1313,7 +1556,9 @@ fn generate_custom_parts_table(
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
                 part.part_number,
-                part.description.as_deref().unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
+                part.description
+                    .as_deref()
+                    .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
                 part_ref.quantity
             ));
         } else {
@@ -1341,8 +1586,14 @@ fn generate_consumables_table(
     let mut sorted_consumables = consumables.to_vec();
     sorted_consumables.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let has_missing = sorted_consumables.iter().any(|c| !inventory.consumables.contains_key(&c.name));
-    let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+    let has_missing = sorted_consumables
+        .iter()
+        .any(|c| !inventory.consumables.contains_key(&c.name));
+    let title_style = if has_missing {
+        " style=\"color: #e53935;\""
+    } else {
+        ""
+    };
 
     let mut table = String::from(&format!("<details id=\"consumables-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong{}>🧪 Consumables</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
@@ -1351,10 +1602,16 @@ fn generate_consumables_table(
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td></tr>\n",
                 consumable.part_number,
-                consumable.description.as_deref().unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>")
+                consumable
+                    .description
+                    .as_deref()
+                    .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>")
             ));
         } else {
-            warn!("Consumable '{}' not found in inventory", consumable_ref.name);
+            warn!(
+                "Consumable '{}' not found in inventory",
+                consumable_ref.name
+            );
             table.push_str(&format!(
                 "<tr><td>{}</td><td><span style=\"color: #e53935;\">Consumable not found in inventory</span></td></tr>\n",
                 consumable_ref.name
@@ -1378,8 +1635,14 @@ fn generate_tools_table(
     let mut sorted_tools = tools.to_vec();
     sorted_tools.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let has_missing = sorted_tools.iter().any(|t| !inventory.tools.contains_key(&t.name));
-    let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+    let has_missing = sorted_tools
+        .iter()
+        .any(|t| !inventory.tools.contains_key(&t.name));
+    let title_style = if has_missing {
+        " style=\"color: #e53935;\""
+    } else {
+        ""
+    };
 
     let mut table = String::from(&format!("<details id=\"tools-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong{}>🔧 Tools</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Setting</th><th>Brand</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
@@ -1417,8 +1680,14 @@ fn generate_assemblies_table(
     let mut sorted_assemblies = assemblies.to_vec();
     sorted_assemblies.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let has_missing = sorted_assemblies.iter().any(|a| !inventory.assemblies.contains_key(&a.name));
-    let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+    let has_missing = sorted_assemblies
+        .iter()
+        .any(|a| !inventory.assemblies.contains_key(&a.name));
+    let title_style = if has_missing {
+        " style=\"color: #e53935;\""
+    } else {
+        ""
+    };
 
     let mut table = String::from(&format!("<details id=\"assemblies-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong{}>\u{1f4e6} Assemblies</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
@@ -1427,7 +1696,10 @@ fn generate_assemblies_table(
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
                 assembly.name,
-                assembly.description.as_deref().unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
+                assembly
+                    .description
+                    .as_deref()
+                    .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
                 assembly_ref.quantity
             ));
         } else {
@@ -1455,17 +1727,23 @@ fn combine_assemblies(assemblies: &[AssemblyReference]) -> Vec<AssemblyReference
                 *excluded_bom = *excluded_bom && assembly.exclude_from_bom;
                 *excluded_overview = *excluded_overview && assembly.exclude_from_overview;
             })
-            .or_insert((assembly.quantity, assembly.exclude_from_bom, assembly.exclude_from_overview));
+            .or_insert((
+                assembly.quantity,
+                assembly.exclude_from_bom,
+                assembly.exclude_from_overview,
+            ));
     }
 
     combined
         .into_iter()
-        .map(|(name, (quantity, exclude_from_bom, exclude_from_overview))| AssemblyReference {
-            name,
-            quantity,
-            exclude_from_bom,
-            exclude_from_overview,
-        })
+        .map(
+            |(name, (quantity, exclude_from_bom, exclude_from_overview))| AssemblyReference {
+                name,
+                quantity,
+                exclude_from_bom,
+                exclude_from_overview,
+            },
+        )
         .collect()
 }
 
@@ -1481,8 +1759,14 @@ fn generate_units_table(
     let mut sorted_units = units.to_vec();
     sorted_units.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let has_missing = sorted_units.iter().any(|u| !inventory.units.contains_key(&u.name));
-    let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+    let has_missing = sorted_units
+        .iter()
+        .any(|u| !inventory.units.contains_key(&u.name));
+    let title_style = if has_missing {
+        " style=\"color: #e53935;\""
+    } else {
+        ""
+    };
 
     let mut table = String::from(&format!("<details id=\"units-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong{}>\u{2b50} Units</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
@@ -1491,7 +1775,9 @@ fn generate_units_table(
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
                 unit.name,
-                unit.description.as_deref().unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
+                unit.description
+                    .as_deref()
+                    .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
                 unit_ref.quantity
             ));
         } else {
@@ -1519,17 +1805,169 @@ fn combine_units(units: &[UnitReference]) -> Vec<UnitReference> {
                 *excluded_bom = *excluded_bom && unit.exclude_from_bom;
                 *excluded_overview = *excluded_overview && unit.exclude_from_overview;
             })
-            .or_insert((unit.quantity, unit.exclude_from_bom, unit.exclude_from_overview));
+            .or_insert((
+                unit.quantity,
+                unit.exclude_from_bom,
+                unit.exclude_from_overview,
+            ));
     }
 
     combined
         .into_iter()
-        .map(|(name, (quantity, exclude_from_bom, exclude_from_overview))| UnitReference {
-            name,
-            quantity,
-            exclude_from_bom,
-            exclude_from_overview,
-        })
+        .map(
+            |(name, (quantity, exclude_from_bom, exclude_from_overview))| UnitReference {
+                name,
+                quantity,
+                exclude_from_bom,
+                exclude_from_overview,
+            },
+        )
+        .collect()
+}
+
+fn generate_wire_harnesses_table(
+    wire_harnesses: &[WireHarnessReference],
+    inventory: &Inventory,
+    section_id: &str,
+) -> String {
+    if wire_harnesses.is_empty() {
+        return String::new();
+    }
+
+    let mut sorted = wire_harnesses.to_vec();
+    sorted.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let has_missing = sorted
+        .iter()
+        .any(|w| !inventory.wire_harnesses.contains_key(&w.name));
+    let title_style = if has_missing {
+        " style=\"color: #e53935;\""
+    } else {
+        ""
+    };
+
+    let mut table = String::from(&format!("<details id=\"wire_harnesses-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong{}>\u{1faa2} Wire Harnesses</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
+
+    for wh_ref in &sorted {
+        if let Some(wh) = inventory.wire_harnesses.get(&wh_ref.name) {
+            table.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+                wh.name,
+                wh.description
+                    .as_deref()
+                    .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
+                wh_ref.quantity
+            ));
+        } else {
+            warn!("Wire harness '{}' not found in inventory", wh_ref.name);
+            table.push_str(&format!(
+                "<tr><td>{}</td><td><span style=\"color: #e53935;\">Wire harness not found in inventory</span></td><td>{}</td></tr>\n",
+                wh_ref.name, wh_ref.quantity
+            ));
+        }
+    }
+
+    table.push_str("</tbody>\n</table>\n<br>\n</details>\n\n");
+    table
+}
+
+fn combine_wire_harnesses(wire_harnesses: &[WireHarnessReference]) -> Vec<WireHarnessReference> {
+    let mut combined: std::collections::HashMap<String, (u32, bool, bool)> =
+        std::collections::HashMap::new();
+
+    for wh in wire_harnesses {
+        combined
+            .entry(wh.name.clone())
+            .and_modify(|(qty, excluded_bom, excluded_overview)| {
+                *qty += wh.quantity;
+                *excluded_bom = *excluded_bom && wh.exclude_from_bom;
+                *excluded_overview = *excluded_overview && wh.exclude_from_overview;
+            })
+            .or_insert((wh.quantity, wh.exclude_from_bom, wh.exclude_from_overview));
+    }
+
+    combined
+        .into_iter()
+        .map(
+            |(name, (quantity, exclude_from_bom, exclude_from_overview))| WireHarnessReference {
+                name,
+                quantity,
+                exclude_from_bom,
+                exclude_from_overview,
+            },
+        )
+        .collect()
+}
+
+fn generate_pcbs_table(pcbs: &[PcbReference], inventory: &Inventory, section_id: &str) -> String {
+    if pcbs.is_empty() {
+        return String::new();
+    }
+
+    let mut sorted = pcbs.to_vec();
+    sorted.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let has_missing = sorted.iter().any(|p| !inventory.pcbs.contains_key(&p.name));
+    let title_style = if has_missing {
+        " style=\"color: #e53935;\""
+    } else {
+        ""
+    };
+
+    let mut table = String::from(&format!("<details id=\"pcbs-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong{}>\u{1f4be} PCBs</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
+
+    for pcb_ref in &sorted {
+        if let Some(pcb) = inventory.pcbs.get(&pcb_ref.name) {
+            table.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+                pcb.name,
+                pcb.description
+                    .as_deref()
+                    .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
+                pcb_ref.quantity
+            ));
+        } else {
+            warn!("PCB '{}' not found in inventory", pcb_ref.name);
+            table.push_str(&format!(
+                "<tr><td>{}</td><td><span style=\"color: #e53935;\">PCB not found in inventory</span></td><td>{}</td></tr>\n",
+                pcb_ref.name, pcb_ref.quantity
+            ));
+        }
+    }
+
+    table.push_str("</tbody>\n</table>\n<br>\n</details>\n\n");
+    table
+}
+
+fn combine_pcbs(pcbs: &[PcbReference]) -> Vec<PcbReference> {
+    let mut combined: std::collections::HashMap<String, (u32, bool, bool)> =
+        std::collections::HashMap::new();
+
+    for pcb in pcbs {
+        combined
+            .entry(pcb.name.clone())
+            .and_modify(|(qty, excluded_bom, excluded_overview)| {
+                *qty += pcb.quantity;
+                *excluded_bom = *excluded_bom && pcb.exclude_from_bom;
+                *excluded_overview = *excluded_overview && pcb.exclude_from_overview;
+            })
+            .or_insert((
+                pcb.quantity,
+                pcb.exclude_from_bom,
+                pcb.exclude_from_overview,
+            ));
+    }
+
+    combined
+        .into_iter()
+        .map(
+            |(name, (quantity, exclude_from_bom, exclude_from_overview))| PcbReference {
+                name,
+                quantity,
+                exclude_from_bom,
+                exclude_from_overview,
+            },
+        )
         .collect()
 }
 
@@ -1545,8 +1983,14 @@ fn generate_subassemblies_table(
     let mut sorted_subassemblies = subassemblies.to_vec();
     sorted_subassemblies.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let has_missing = sorted_subassemblies.iter().any(|s| !inventory.subassemblies.contains_key(&s.name));
-    let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+    let has_missing = sorted_subassemblies
+        .iter()
+        .any(|s| !inventory.subassemblies.contains_key(&s.name));
+    let title_style = if has_missing {
+        " style=\"color: #e53935;\""
+    } else {
+        ""
+    };
 
     let mut table = String::from(&format!("<details id=\"subassemblies-{}\" style=\"border-left: 3px solid #f9a825; padding-left: 12px;\">\n<summary><strong{}>\u{1f9e9} Subassemblies</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
@@ -1555,11 +1999,17 @@ fn generate_subassemblies_table(
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
                 subassembly.name,
-                subassembly.description.as_deref().unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
+                subassembly
+                    .description
+                    .as_deref()
+                    .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
                 subassembly_ref.quantity
             ));
         } else {
-            warn!("Subassembly '{}' not found in inventory", subassembly_ref.name);
+            warn!(
+                "Subassembly '{}' not found in inventory",
+                subassembly_ref.name
+            );
             table.push_str(&format!(
                 "<tr><td>{}</td><td><span style=\"color: #e53935;\">Subassembly not found in inventory</span></td><td>{}</td></tr>\n",
                 subassembly_ref.name, subassembly_ref.quantity
@@ -1600,8 +2050,18 @@ fn generate_output_table(
     sorted_subassemblies.sort_by(|a, b| a.name.cmp(&b.name));
     let mut sorted_units = output.units.clone().unwrap_or_default();
     sorted_units.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut sorted_wire_harnesses = output.wire_harnesses.clone().unwrap_or_default();
+    sorted_wire_harnesses.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut sorted_pcbs = output.pcbs.clone().unwrap_or_default();
+    sorted_pcbs.sort_by(|a, b| a.name.cmp(&b.name));
 
-    if sorted_custom_parts.is_empty() && sorted_assemblies.is_empty() && sorted_subassemblies.is_empty() && sorted_units.is_empty() {
+    if sorted_custom_parts.is_empty()
+        && sorted_assemblies.is_empty()
+        && sorted_subassemblies.is_empty()
+        && sorted_units.is_empty()
+        && sorted_wire_harnesses.is_empty()
+        && sorted_pcbs.is_empty()
+    {
         return String::new();
     }
 
@@ -1613,17 +2073,28 @@ fn generate_output_table(
 
     // Output custom parts table with colored left border
     if !sorted_custom_parts.is_empty() {
-        let has_missing = sorted_custom_parts.iter().any(|p| !inventory.custom_parts.contains_key(&p.name));
-        let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+        let has_missing = sorted_custom_parts
+            .iter()
+            .any(|p| !inventory.custom_parts.contains_key(&p.name));
+        let title_style = if has_missing {
+            " style=\"color: #e53935;\""
+        } else {
+            ""
+        };
 
         table.push_str(&format!("<details id=\"output_custom_parts-{}\" style=\"border-left: 3px solid #4caf50; padding-left: 12px;\">\n<summary><strong{}>\u{2699}\u{fe0f} Custom Parts</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
         for part_ref in &sorted_custom_parts {
             let description = match inventory.custom_parts.get(&part_ref.name) {
-                Some(p) => p.description.as_deref()
+                Some(p) => p
+                    .description
+                    .as_deref()
                     .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
                 None => {
-                    warn!("Output custom part '{}' not found in inventory", part_ref.name);
+                    warn!(
+                        "Output custom part '{}' not found in inventory",
+                        part_ref.name
+                    );
                     "<span style=\"color: #e53935;\">Custom part not found in inventory</span>"
                 }
             };
@@ -1638,17 +2109,28 @@ fn generate_output_table(
 
     // Output assemblies table with colored left border
     if !sorted_assemblies.is_empty() {
-        let has_missing = sorted_assemblies.iter().any(|a| !inventory.assemblies.contains_key(&a.name));
-        let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+        let has_missing = sorted_assemblies
+            .iter()
+            .any(|a| !inventory.assemblies.contains_key(&a.name));
+        let title_style = if has_missing {
+            " style=\"color: #e53935;\""
+        } else {
+            ""
+        };
 
         table.push_str(&format!("<details id=\"output_assemblies-{}\" style=\"border-left: 3px solid #4caf50; padding-left: 12px;\">\n<summary><strong{}>\u{1f4e6} Assemblies</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
         for assembly_ref in &sorted_assemblies {
             let description = match inventory.assemblies.get(&assembly_ref.name) {
-                Some(a) => a.description.as_deref()
+                Some(a) => a
+                    .description
+                    .as_deref()
                     .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
                 None => {
-                    warn!("Output assembly '{}' not found in inventory", assembly_ref.name);
+                    warn!(
+                        "Output assembly '{}' not found in inventory",
+                        assembly_ref.name
+                    );
                     "<span style=\"color: #e53935;\">Assembly not found in inventory</span>"
                 }
             };
@@ -1663,17 +2145,28 @@ fn generate_output_table(
 
     // Output subassemblies table with colored left border
     if !sorted_subassemblies.is_empty() {
-        let has_missing = sorted_subassemblies.iter().any(|s| !inventory.subassemblies.contains_key(&s.name));
-        let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+        let has_missing = sorted_subassemblies
+            .iter()
+            .any(|s| !inventory.subassemblies.contains_key(&s.name));
+        let title_style = if has_missing {
+            " style=\"color: #e53935;\""
+        } else {
+            ""
+        };
 
         table.push_str(&format!("<details id=\"output_subassemblies-{}\" style=\"border-left: 3px solid #4caf50; padding-left: 12px;\">\n<summary><strong{}>\u{1f9e9} Subassemblies</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
         for subassembly_ref in &sorted_subassemblies {
             let description = match inventory.subassemblies.get(&subassembly_ref.name) {
-                Some(s) => s.description.as_deref()
+                Some(s) => s
+                    .description
+                    .as_deref()
                     .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
                 None => {
-                    warn!("Output subassembly '{}' not found in inventory", subassembly_ref.name);
+                    warn!(
+                        "Output subassembly '{}' not found in inventory",
+                        subassembly_ref.name
+                    );
                     "<span style=\"color: #e53935;\">Subassembly not found in inventory</span>"
                 }
             };
@@ -1688,14 +2181,22 @@ fn generate_output_table(
 
     // Output units table with colored left border
     if !sorted_units.is_empty() {
-        let has_missing = sorted_units.iter().any(|u| !inventory.units.contains_key(&u.name));
-        let title_style = if has_missing { " style=\"color: #e53935;\"" } else { "" };
+        let has_missing = sorted_units
+            .iter()
+            .any(|u| !inventory.units.contains_key(&u.name));
+        let title_style = if has_missing {
+            " style=\"color: #e53935;\""
+        } else {
+            ""
+        };
 
         table.push_str(&format!("<details id=\"output_units-{}\" style=\"border-left: 3px solid #4caf50; padding-left: 12px;\">\n<summary><strong{}>\u{2b50} Units</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
 
         for unit_ref in &sorted_units {
             let description = match inventory.units.get(&unit_ref.name) {
-                Some(u) => u.description.as_deref()
+                Some(u) => u
+                    .description
+                    .as_deref()
                     .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
                 None => {
                     warn!("Output unit '{}' not found in inventory", unit_ref.name);
@@ -1705,6 +2206,75 @@ fn generate_output_table(
             table.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
                 unit_ref.name, description, unit_ref.quantity
+            ));
+        }
+
+        table.push_str("</tbody>\n</table>\n<br>\n</details>\n\n");
+    }
+
+    // Output wire harnesses table with colored left border
+    if !sorted_wire_harnesses.is_empty() {
+        let has_missing = sorted_wire_harnesses
+            .iter()
+            .any(|w| !inventory.wire_harnesses.contains_key(&w.name));
+        let title_style = if has_missing {
+            " style=\"color: #e53935;\""
+        } else {
+            ""
+        };
+
+        table.push_str(&format!("<details id=\"output_wire_harnesses-{}\" style=\"border-left: 3px solid #4caf50; padding-left: 12px;\">\n<summary><strong{}>\u{1faa2} Wire Harnesses</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
+
+        for wh_ref in &sorted_wire_harnesses {
+            let description = match inventory.wire_harnesses.get(&wh_ref.name) {
+                Some(w) => w
+                    .description
+                    .as_deref()
+                    .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
+                None => {
+                    warn!(
+                        "Output wire harness '{}' not found in inventory",
+                        wh_ref.name
+                    );
+                    "<span style=\"color: #e53935;\">Wire harness not found in inventory</span>"
+                }
+            };
+            table.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+                wh_ref.name, description, wh_ref.quantity
+            ));
+        }
+
+        table.push_str("</tbody>\n</table>\n<br>\n</details>\n\n");
+    }
+
+    // Output PCBs table with colored left border
+    if !sorted_pcbs.is_empty() {
+        let has_missing = sorted_pcbs
+            .iter()
+            .any(|p| !inventory.pcbs.contains_key(&p.name));
+        let title_style = if has_missing {
+            " style=\"color: #e53935;\""
+        } else {
+            ""
+        };
+
+        table.push_str(&format!("<details id=\"output_pcbs-{}\" style=\"border-left: 3px solid #4caf50; padding-left: 12px;\">\n<summary><strong{}>\u{1f4be} PCBs</strong></summary>\n<br>\n<table style=\"margin: 0;\">\n<thead>\n<tr><th>Name</th><th>Description</th><th>Quantity</th></tr>\n</thead>\n<tbody>\n", section_id, title_style));
+
+        for pcb_ref in &sorted_pcbs {
+            let description = match inventory.pcbs.get(&pcb_ref.name) {
+                Some(p) => p
+                    .description
+                    .as_deref()
+                    .unwrap_or("<span style=\"color: #f9a825;\">No description provided</span>"),
+                None => {
+                    warn!("Output PCB '{}' not found in inventory", pcb_ref.name);
+                    "<span style=\"color: #e53935;\">PCB not found in inventory</span>"
+                }
+            };
+            table.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+                pcb_ref.name, description, pcb_ref.quantity
             ));
         }
 
@@ -1726,17 +2296,23 @@ fn combine_subassemblies(subassemblies: &[SubassemblyReference]) -> Vec<Subassem
                 *excluded_bom = *excluded_bom && subassembly.exclude_from_bom;
                 *excluded_overview = *excluded_overview && subassembly.exclude_from_overview;
             })
-            .or_insert((subassembly.quantity, subassembly.exclude_from_bom, subassembly.exclude_from_overview));
+            .or_insert((
+                subassembly.quantity,
+                subassembly.exclude_from_bom,
+                subassembly.exclude_from_overview,
+            ));
     }
 
     combined
         .into_iter()
-        .map(|(name, (quantity, exclude_from_bom, exclude_from_overview))| SubassemblyReference {
-            name,
-            quantity,
-            exclude_from_bom,
-            exclude_from_overview,
-        })
+        .map(
+            |(name, (quantity, exclude_from_bom, exclude_from_overview))| SubassemblyReference {
+                name,
+                quantity,
+                exclude_from_bom,
+                exclude_from_overview,
+            },
+        )
         .collect()
 }
 
@@ -1749,6 +2325,10 @@ fn combine_output_metadata(outputs: &[OutputMetadata]) -> OutputMetadata {
     let mut subassembly_map: std::collections::HashMap<String, (u32, bool)> =
         std::collections::HashMap::new();
     let mut unit_map: std::collections::HashMap<String, (u32, bool)> =
+        std::collections::HashMap::new();
+    let mut wire_harness_map: std::collections::HashMap<String, (u32, bool)> =
+        std::collections::HashMap::new();
+    let mut pcb_map: std::collections::HashMap<String, (u32, bool)> =
         std::collections::HashMap::new();
 
     for output in outputs {
@@ -1796,6 +2376,28 @@ fn combine_output_metadata(outputs: &[OutputMetadata]) -> OutputMetadata {
                     .or_insert((u.quantity, u.exclude_from_overview));
             }
         }
+        if let Some(wire_harnesses) = &output.wire_harnesses {
+            for w in wire_harnesses {
+                wire_harness_map
+                    .entry(w.name.clone())
+                    .and_modify(|(qty, excluded)| {
+                        *qty += w.quantity;
+                        *excluded = *excluded && w.exclude_from_overview;
+                    })
+                    .or_insert((w.quantity, w.exclude_from_overview));
+            }
+        }
+        if let Some(pcbs) = &output.pcbs {
+            for p in pcbs {
+                pcb_map
+                    .entry(p.name.clone())
+                    .and_modify(|(qty, excluded)| {
+                        *qty += p.quantity;
+                        *excluded = *excluded && p.exclude_from_overview;
+                    })
+                    .or_insert((p.quantity, p.exclude_from_overview));
+            }
+        }
     }
 
     let custom_parts = if custom_part_map.is_empty() {
@@ -1804,11 +2406,13 @@ fn combine_output_metadata(outputs: &[OutputMetadata]) -> OutputMetadata {
         Some(
             custom_part_map
                 .into_iter()
-                .map(|(name, (quantity, exclude_from_overview))| OutputReference {
-                    name,
-                    quantity,
-                    exclude_from_overview,
-                })
+                .map(
+                    |(name, (quantity, exclude_from_overview))| OutputReference {
+                        name,
+                        quantity,
+                        exclude_from_overview,
+                    },
+                )
                 .collect(),
         )
     };
@@ -1819,11 +2423,13 @@ fn combine_output_metadata(outputs: &[OutputMetadata]) -> OutputMetadata {
         Some(
             assembly_map
                 .into_iter()
-                .map(|(name, (quantity, exclude_from_overview))| OutputReference {
-                    name,
-                    quantity,
-                    exclude_from_overview,
-                })
+                .map(
+                    |(name, (quantity, exclude_from_overview))| OutputReference {
+                        name,
+                        quantity,
+                        exclude_from_overview,
+                    },
+                )
                 .collect(),
         )
     };
@@ -1834,11 +2440,13 @@ fn combine_output_metadata(outputs: &[OutputMetadata]) -> OutputMetadata {
         Some(
             subassembly_map
                 .into_iter()
-                .map(|(name, (quantity, exclude_from_overview))| OutputReference {
-                    name,
-                    quantity,
-                    exclude_from_overview,
-                })
+                .map(
+                    |(name, (quantity, exclude_from_overview))| OutputReference {
+                        name,
+                        quantity,
+                        exclude_from_overview,
+                    },
+                )
                 .collect(),
         )
     };
@@ -1849,11 +2457,47 @@ fn combine_output_metadata(outputs: &[OutputMetadata]) -> OutputMetadata {
         Some(
             unit_map
                 .into_iter()
-                .map(|(name, (quantity, exclude_from_overview))| OutputReference {
-                    name,
-                    quantity,
-                    exclude_from_overview,
-                })
+                .map(
+                    |(name, (quantity, exclude_from_overview))| OutputReference {
+                        name,
+                        quantity,
+                        exclude_from_overview,
+                    },
+                )
+                .collect(),
+        )
+    };
+
+    let wire_harnesses = if wire_harness_map.is_empty() {
+        None
+    } else {
+        Some(
+            wire_harness_map
+                .into_iter()
+                .map(
+                    |(name, (quantity, exclude_from_overview))| OutputReference {
+                        name,
+                        quantity,
+                        exclude_from_overview,
+                    },
+                )
+                .collect(),
+        )
+    };
+
+    let pcbs = if pcb_map.is_empty() {
+        None
+    } else {
+        Some(
+            pcb_map
+                .into_iter()
+                .map(
+                    |(name, (quantity, exclude_from_overview))| OutputReference {
+                        name,
+                        quantity,
+                        exclude_from_overview,
+                    },
+                )
                 .collect(),
         )
     };
@@ -1863,6 +2507,8 @@ fn combine_output_metadata(outputs: &[OutputMetadata]) -> OutputMetadata {
         assemblies,
         subassemblies,
         units,
+        wire_harnesses,
+        pcbs,
     }
 }
 
@@ -1948,6 +2594,64 @@ fn accumulate_units(
                         .unwrap_or("-")
                         .to_string(),
                     total_quantity: unit_ref.quantity,
+                });
+        }
+    }
+}
+
+fn accumulate_wire_harnesses(
+    wire_harnesses: &[WireHarnessReference],
+    inventory: &Inventory,
+    all_wire_harnesses: &mut HashMap<String, BomWireHarnessItem>,
+) {
+    for wh_ref in wire_harnesses {
+        if wh_ref.exclude_from_bom {
+            continue;
+        }
+
+        if let Some(inventory_wh) = inventory.wire_harnesses.get(&wh_ref.name) {
+            let key = wh_ref.name.clone();
+
+            all_wire_harnesses
+                .entry(key)
+                .and_modify(|item| item.total_quantity += wh_ref.quantity)
+                .or_insert_with(|| BomWireHarnessItem {
+                    name: inventory_wh.name.clone(),
+                    description: inventory_wh
+                        .description
+                        .as_deref()
+                        .unwrap_or("-")
+                        .to_string(),
+                    total_quantity: wh_ref.quantity,
+                });
+        }
+    }
+}
+
+fn accumulate_pcbs(
+    pcbs: &[PcbReference],
+    inventory: &Inventory,
+    all_pcbs: &mut HashMap<String, BomPcbItem>,
+) {
+    for pcb_ref in pcbs {
+        if pcb_ref.exclude_from_bom {
+            continue;
+        }
+
+        if let Some(inventory_pcb) = inventory.pcbs.get(&pcb_ref.name) {
+            let key = pcb_ref.name.clone();
+
+            all_pcbs
+                .entry(key)
+                .and_modify(|item| item.total_quantity += pcb_ref.quantity)
+                .or_insert_with(|| BomPcbItem {
+                    name: inventory_pcb.name.clone(),
+                    description: inventory_pcb
+                        .description
+                        .as_deref()
+                        .unwrap_or("-")
+                        .to_string(),
+                    total_quantity: pcb_ref.quantity,
                 });
         }
     }
@@ -2117,7 +2821,9 @@ fn resolve_git_ref(book_root: &std::path::Path) -> Result<String, Error> {
         .map_err(|e| Error::msg(format!("Failed to run git: {}", e)))?;
 
     if tag_output.status.success() {
-        let tag = String::from_utf8_lossy(&tag_output.stdout).trim().to_string();
+        let tag = String::from_utf8_lossy(&tag_output.stdout)
+            .trim()
+            .to_string();
         if !tag.is_empty() {
             return Ok(tag);
         }
@@ -2176,6 +2882,8 @@ fn generate_bom_excel_file(
     assemblies: &HashMap<String, BomAssemblyItem>,
     subassemblies: &HashMap<String, BomSubassemblyItem>,
     units: &HashMap<String, BomUnitItem>,
+    wire_harnesses: &HashMap<String, BomWireHarnessItem>,
+    pcbs: &HashMap<String, BomPcbItem>,
     output_path: &str,
 ) -> Result<(), Error> {
     let mut workbook = Workbook::new();
@@ -2452,6 +3160,78 @@ fn generate_bom_excel_file(
                 .map_err(|e| Error::msg(format!("Failed to write data: {}", e)))?;
             worksheet
                 .write_number(row as u32, 2, unit.total_quantity as f64)
+                .map_err(|e| Error::msg(format!("Failed to write data: {}", e)))?;
+        }
+    }
+
+    // Generate Wire Harnesses sheet
+    if !wire_harnesses.is_empty() {
+        let worksheet = workbook
+            .add_worksheet()
+            .set_name("Wire Harnesses")
+            .map_err(|e| Error::msg(format!("Failed to set sheet name: {}", e)))?;
+
+        // Headers
+        worksheet
+            .write_string(0, 0, "Name")
+            .map_err(|e| Error::msg(format!("Failed to write header: {}", e)))?;
+        worksheet
+            .write_string(0, 1, "Description")
+            .map_err(|e| Error::msg(format!("Failed to write header: {}", e)))?;
+        worksheet
+            .write_string(0, 2, "Quantity")
+            .map_err(|e| Error::msg(format!("Failed to write header: {}", e)))?;
+
+        // Data
+        let mut sorted_wire_harnesses: Vec<_> = wire_harnesses.values().collect();
+        sorted_wire_harnesses.sort_by(|a, b| a.name.cmp(&b.name));
+
+        for (row, wh) in sorted_wire_harnesses.iter().enumerate() {
+            let row = row + 1; // Skip header row
+            worksheet
+                .write_string(row as u32, 0, &wh.name)
+                .map_err(|e| Error::msg(format!("Failed to write data: {}", e)))?;
+            worksheet
+                .write_string(row as u32, 1, &wh.description)
+                .map_err(|e| Error::msg(format!("Failed to write data: {}", e)))?;
+            worksheet
+                .write_number(row as u32, 2, wh.total_quantity as f64)
+                .map_err(|e| Error::msg(format!("Failed to write data: {}", e)))?;
+        }
+    }
+
+    // Generate PCBs sheet
+    if !pcbs.is_empty() {
+        let worksheet = workbook
+            .add_worksheet()
+            .set_name("PCBs")
+            .map_err(|e| Error::msg(format!("Failed to set sheet name: {}", e)))?;
+
+        // Headers
+        worksheet
+            .write_string(0, 0, "Name")
+            .map_err(|e| Error::msg(format!("Failed to write header: {}", e)))?;
+        worksheet
+            .write_string(0, 1, "Description")
+            .map_err(|e| Error::msg(format!("Failed to write header: {}", e)))?;
+        worksheet
+            .write_string(0, 2, "Quantity")
+            .map_err(|e| Error::msg(format!("Failed to write header: {}", e)))?;
+
+        // Data
+        let mut sorted_pcbs: Vec<_> = pcbs.values().collect();
+        sorted_pcbs.sort_by(|a, b| a.name.cmp(&b.name));
+
+        for (row, pcb) in sorted_pcbs.iter().enumerate() {
+            let row = row + 1; // Skip header row
+            worksheet
+                .write_string(row as u32, 0, &pcb.name)
+                .map_err(|e| Error::msg(format!("Failed to write data: {}", e)))?;
+            worksheet
+                .write_string(row as u32, 1, &pcb.description)
+                .map_err(|e| Error::msg(format!("Failed to write data: {}", e)))?;
+            worksheet
+                .write_number(row as u32, 2, pcb.total_quantity as f64)
                 .map_err(|e| Error::msg(format!("Failed to write data: {}", e)))?;
         }
     }

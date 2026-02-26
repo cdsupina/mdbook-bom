@@ -55,6 +55,8 @@ The preprocessor requires an Excel inventory file with the following sheets:
 - Assemblies
 - Subassemblies
 - Units
+- Wire Harnesses
+- PCBs
 
 The `inventory_file` path supports home directory expansion with `~/`.
 
@@ -84,7 +86,7 @@ Implemented via `resolve_git_ref()` and `resolve_output_path()` functions near `
 
 2. **Inventory Loading**: Handles reading inventory data from Excel
    - `Inventory::load()` - Loads Excel file with home directory expansion
-   - `load_*_from_excel()` methods - Read individual sheets (Hardware, Electronics, Custom Parts, Consumables, Tools, Assemblies, Subassemblies, Units)
+   - `load_*_from_excel()` methods - Read individual sheets (Hardware, Electronics, Custom Parts, Consumables, Tools, Assemblies, Subassemblies, Units, Wire Harnesses, PCBs)
    - Stores data in HashMaps keyed by part number/name
 
 3. **Front Matter Processing**:
@@ -95,19 +97,19 @@ Implemented via `resolve_git_ref()` and `resolve_output_path()` functions near `
 4. **Table Generation**:
    - `insert_section_tables()` - Inserts collapsible tables after step headers
    - `generate_overview_tables()` - Creates chapter overview with all components
-   - Generates separate tables for: Hardware, Electronics, Custom Parts, Consumables, Tools, Assemblies, Subassemblies, Units, Output
+   - Generates separate tables for: Hardware, Electronics, Custom Parts, Consumables, Tools, Assemblies, Subassemblies, Units, Wire Harnesses, PCBs, Output
    - Each table has collapsible `<details>` elements with unique IDs for JavaScript control
 
 5. **BOM Accumulation**:
    - `accumulate_*()` functions - Aggregate components across all chapters
-   - Combines quantities for parts, assemblies, and subassemblies
+   - Combines quantities for parts, assemblies, subassemblies, wire harnesses, and PCBs
    - Deduplicates consumables and tools
    - Merges tool settings from different steps
    - Respects `exclude_from_bom` flag — items with `exclude_from_bom: true` appear in chapter tables but are skipped during BOM accumulation
 
 6. **Output Generation**:
    - `generate_bom_excel_file()` - Creates multi-sheet Excel workbook
-   - Separate sheets for each component category (Hardware, Electronics, Custom Parts, Tools, Consumables, Assemblies, Subassemblies, Units)
+   - Separate sheets for each component category (Hardware, Electronics, Custom Parts, Tools, Consumables, Assemblies, Subassemblies, Units, Wire Harnesses, PCBs)
    - Sorted by description/name
 
 ### Data Flow
@@ -156,6 +158,16 @@ sections:
       units:
         - name: "Completed Widget"
           quantity: 1
+      wire_harnesses:
+        - name: "Main Wire Harness"
+          quantity: 1
+          exclude_from_bom: true          # Optional, defaults to false
+          exclude_from_overview: true      # Optional, defaults to false
+      pcbs:
+        - name: "Main Controller PCB"
+          quantity: 1
+          exclude_from_bom: true          # Optional, defaults to false
+          exclude_from_overview: true      # Optional, defaults to false
     output:
       custom_parts:
         - name: "CUSTOM-OUT-001"
@@ -170,6 +182,14 @@ sections:
       units:
         - name: "Finished Widget"
           quantity: 1
+      wire_harnesses:
+        - name: "Main Wire Harness"
+          quantity: 1
+          exclude_from_overview: true    # Optional, defaults to false
+      pcbs:
+        - name: "Main Controller PCB"
+          quantity: 1
+          exclude_from_overview: true    # Optional, defaults to false
 ---
 ```
 
@@ -182,7 +202,7 @@ sections:
 
 ### Item-Level `exclude_from_bom` Field
 
-All component reference types (`PartReference`, `ConsumableReference`, `ToolReference`, `AssemblyReference`, `SubassemblyReference`, `UnitReference`) support an optional `exclude_from_bom: bool` field (defaults to `false`). When set to `true`:
+All component reference types (`PartReference`, `ConsumableReference`, `ToolReference`, `AssemblyReference`, `SubassemblyReference`, `UnitReference`, `WireHarnessReference`, `PcbReference`) support an optional `exclude_from_bom: bool` field (defaults to `false`). When set to `true`:
 - The item still appears in chapter-level and overview tables
 - The item is **skipped** during BOM accumulation (not included in the Excel output)
 - Useful for sub-assemblies built within the book or items that should not be double-counted
@@ -200,7 +220,7 @@ In overview table deduplication, `exclude_from_overview` uses logical AND: only 
 
 ### Output Section
 
-Each step can have an optional `output` section listing custom parts, assemblies, subassemblies, and/or units produced by that step. Output items are **purely informational** — they appear in chapter-level and overview tables but are never accumulated into the BOM Excel output. Output references also support `exclude_from_overview`. Descriptions are looked up from the Custom Parts, Assemblies, Subassemblies, and Units inventory sheets respectively.
+Each step can have an optional `output` section listing custom parts, assemblies, subassemblies, units, wire harnesses, and/or PCBs produced by that step. Output items are **purely informational** — they appear in chapter-level and overview tables but are never accumulated into the BOM Excel output. Output references also support `exclude_from_overview`. Descriptions are looked up from the Custom Parts, Assemblies, Subassemblies, Units, Wire Harnesses, and PCBs inventory sheets respectively.
 
 ### Step Header Matching
 
@@ -218,6 +238,8 @@ Step headers are matched using regex:
 - `InventoryAssembly`: Has `Name` and optional `Description`
 - `InventorySubassembly`: Has `Name` and optional `Description`
 - `InventoryUnit`: Has `Name` and optional `Description`
+- `InventoryWireHarness`: Has `Name` and optional `Description`
+- `InventoryPcb`: Has `Name` and optional `Description`
 - All use serde `#[serde(rename = "Name")]` to match Excel column headers
 
 ### BOM Data Structures
@@ -228,6 +250,8 @@ Step headers are matched using regex:
 - `BomAssemblyItem`: Tracks `total_quantity` across all chapters
 - `BomSubassemblyItem`: Tracks `total_quantity` across all chapters
 - `BomUnitItem`: Tracks `total_quantity` across all chapters
+- `BomWireHarnessItem`: Tracks `total_quantity` across all chapters
+- `BomPcbItem`: Tracks `total_quantity` across all chapters
 
 ## Key Implementation Details
 
